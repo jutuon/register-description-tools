@@ -1,8 +1,16 @@
 pub mod register_description;
 pub mod register;
 
+// TODO: Improve the error messages.
+// TODO: Check name and description values with regex.
+// TODO: Check that register function bit ranges don't overlap
+//       and are inside register bounds.
+// TODO: Check that the same register enum bit range is defined also in the register
+//       function list.
+
 use std::{
     convert::TryFrom,
+    iter::Iterator,
 };
 
 use toml::Value;
@@ -20,6 +28,7 @@ pub enum CurrentTable {
     RegisterDescription,
     Register,
     Enum,
+    EnumValue,
     Function,
 }
 
@@ -27,7 +36,8 @@ pub enum CurrentTable {
 pub enum ValidationError {
     MissingKey(CurrentTable, &'static str),
     UnknownKey(CurrentTable, String),
-    FieldValidationError { table: CurrentTable, key: &'static str, error: String },
+    ValueValidationError { table: CurrentTable, key: &'static str, error: String },
+    TableValidationError { table: CurrentTable, error: String },
 }
 
 #[derive(Debug)]
@@ -84,13 +94,13 @@ pub fn check_root_table(root: TomlTable) -> Result<ParsedFile, Vec<ValidationErr
                         groups.push((key.to_string(), registers));
                     },
                     invalid_type => {
-                        v.push_validation_error(format!("Error while validating register group '{}': expected an array, value: '{:#?}'", key, invalid_type));
+                        v.value_validation_error(format!("Error while validating register group '{}': expected an array, value: '{:#?}'", key, invalid_type));
                     }
                 }
             }
         }
         Ok(Some(invalid_type)) => {
-            v.push_validation_error(format!("Expected a table or an array, value: '{:#?}'", invalid_type));
+            v.value_validation_error(format!("Expected a table or an array, value: '{:#?}'", invalid_type));
         }
         Err(()) | Ok(None) => (),
     }
@@ -109,19 +119,21 @@ pub fn handle_register_array(array: &TomlArray, v: &mut TableValidator, parsed_f
     for value in array {
         match value {
             Value::Table(register_table) => {
-                register::validate_register_table(register_table, &parsed_file.description, v.errors_mut(), &mut registers)
+                let _ = register::validate_register_table(register_table, &parsed_file.description, v.errors_mut(), &mut registers);
             },
             invalid_type => {
-                v.push_validation_error(format!("Expected an array of tables, value: '{:#?}'", invalid_type));
+                v.value_validation_error(format!("Expected an array of tables, value: '{:#?}'", invalid_type));
             }
         }
     }
     registers
 }
 
-pub fn check_unknown_keys(table: &TomlTable, possible_keys: &[&str], ec: &mut ErrorContext) {
+pub fn check_unknown_keys<T: AsRef<str>, U: Iterator<Item=T> + Clone, V: IntoIterator<Item=T, IntoIter=U>>(table: &TomlTable, possible_keys: V, ec: &mut ErrorContext) {
+    let possible_keys = possible_keys.into_iter();
     for (k, _) in table.iter() {
-        if !possible_keys.contains(&k.as_str()) {
+        let mut possible_keys = possible_keys.clone();
+        if possible_keys.find(|key_text| &k.as_str() == &key_text.as_ref()).is_none() {
             ec.unknown_key(k.to_string())
         }
     }
@@ -159,11 +171,16 @@ impl <'a> ErrorContext<'a> {
 
     /// Add error with current table and current key information.
     pub fn value_validation_error(&mut self, error: String) {
-        self.errors.push(ValidationError::FieldValidationError {
+        self.errors.push(ValidationError::ValueValidationError {
             table: self.ct,
             key: self.current_key,
             error,
         });
+    }
+
+    /// Add error with current table information.
+    pub fn table_validation_error(&mut self, error: String) {
+        self.errors.push(ValidationError::TableValidationError{ table: self.ct, error });
     }
 
     pub fn errors_mut(&mut self) -> &mut Vec<ValidationError> {
@@ -206,8 +223,32 @@ impl <'a, 'b> TableValidator<'a, 'b> {
         self.ec.errors_mut()
     }
 
-    pub fn push_validation_error(&mut self, message: String) {
+    pub fn value_validation_error(&mut self, message: String) {
         self.ec.value_validation_error(message)
+    }
+
+    pub fn handle_error<T, E: ToString>(&mut self, value: Result<T, E>) -> Result<T,()> {
+        match value {
+            Err(e) => self.table_validation_error(e.to_string()),
+            Ok(x) => Ok(x)
+        }
+    }
+
+    /// Result is for early returns with `?` operator or `return` statement.
+    pub fn table_validation_error<T>(&mut self, message: String) -> Result<T,()> {
+        self.ec.table_validation_error(message);
+        Err(())
+    }
+
+    pub fn hex_to_u64(&mut self, hex: &str) -> Result<u64, ()> {
+        let hex = hex.trim_start_matches("0x");
+
+        match u64::from_str_radix(hex, 16) {
+            Err(e) => {
+                self.table_validation_error(format!("{}", e))
+            }
+            Ok(x) => Ok(x),
+        }
     }
 
     pub fn value<'c>(&'c mut self, key: &'static str) -> ValidatorResult<'c, 'a, 'b, &'a TomlValue> {
@@ -292,14 +333,14 @@ impl <'a, 'b> TableValidator<'a, 'b> {
         })
     }
 
-    pub fn try_from_type<'c, T: TryFrom<&'c str, Error=String>>(&'c mut self, key: &'static str) -> ValidatorResult<'c, 'a, 'b, T> {
+    pub fn try_from_type<'c, T: TryFrom<&'c str, Error=U>, U: ToString>(&'c mut self, key: &'static str) -> ValidatorResult<'c, 'a, 'b, T> {
         self.text(key).map(|text| {
             T::try_from(text)
         })
     }
 
     pub fn string<'c>(&'c mut self, key: &'static str) -> ValidatorResult<'c, 'a, 'b, String> {
-        self.text(key).map(|text| {
+        self.text(key).map::<_,_,String>(|text| {
             Ok(text.to_string())
         })
     }
@@ -322,12 +363,12 @@ impl <'a, 'b, 'c, T> ValidatorResult<'a,'b,'c, T> {
         self.0
     }
 
-    fn map<U, V: FnMut(T) -> Result<U, String>>(self, mut converter: V) -> ValidatorResult<'a,'b,'c, U> {
+    fn map<U, V: FnMut(T) -> Result<U, X>, X: ToString>(self, mut converter: V) -> ValidatorResult<'a,'b,'c, U> {
         match self.0 {
             Ok(Some(x)) => match (converter)(x) {
                 Ok(new) => ValidatorResult(Ok(Some(new)), self.1),
                 Err(e) => {
-                    self.1.ec.value_validation_error(e);
+                    self.1.ec.value_validation_error(e.to_string());
                     ValidatorResult(Err(()), self.1)
                 }
             }
