@@ -59,6 +59,8 @@ impl TryFrom<&str> for BitRange {
 
                 if msb < lsb {
                     Err(format!("most significant bit is smaller than least significant bit (msb < lsb), value: '{}'", &value))
+                } else if msb == lsb {
+                    Err(format!("unnecessary range syntax, change '{}' to '{}'", &value, msb))
                 } else {
                     Ok(BitRange {
                         msb,
