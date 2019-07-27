@@ -1,4 +1,9 @@
 
+use std::{
+    convert::TryFrom,
+    fmt,
+};
+
 use toml::Value;
 
 use super::{
@@ -34,6 +39,45 @@ pub struct RegisterEnum {
 pub struct BitRange {
     msb: u16,
     lsb: u16,
+}
+
+impl fmt::Display for BitRange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}:{}", self.msb, self.lsb)
+    }
+}
+
+impl TryFrom<&str> for BitRange {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let mut bit = value.split(":");
+        match (bit.next(), bit.next(), bit.next()) {
+            (Some(msb), Some(lsb), None) => {
+                let msb = msb.parse::<u16>().map_err(|e| e.to_string())?;
+                let lsb = lsb.parse::<u16>().map_err(|e| e.to_string())?;
+
+                if msb < lsb {
+                    Err(format!("most significant bit is smaller than least significant bit (msb < lsb), value: '{}'", &value))
+                } else {
+                    Ok(BitRange {
+                        msb,
+                        lsb
+                    })
+                }
+            }
+            (Some(single_bit), None, None) => {
+                let bit: u16 = single_bit.parse::<u16>().map_err(|e| e.to_string())?;
+
+                Ok(BitRange {
+                    msb: bit,
+                    lsb: bit,
+                })
+            }
+            (_, _, Some(_)) => Err(format!("invalid bit range '{}'", &value)),
+            (None, _, None) => unreachable!(), // Iterator method 'next' should make this impossible to happen.
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -190,9 +234,8 @@ pub fn validate_function_table(
 ) -> Result<RegisterFunction, ()> {
     let mut v = TableValidator::new(table, CurrentTable::Function, data);
 
-    let bit_string = v.string(BIT_KEY).require()?;
-    v.push_context_identifier(format!("function '{}'", &bit_string));
-    let bit_range = validate_bit_range(&bit_string, &mut v)?;
+    let bit_range: BitRange = v.try_from_type(BIT_KEY).require()?;
+    v.push_context_identifier(format!("function '{}'", bit_range));
 
     v.check_unknown_keys(POSSIBLE_KEYS_FUNCTION);
 
@@ -213,38 +256,6 @@ pub fn validate_function_table(
     })
 }
 
-fn validate_bit_range(bit_string: &str, v: &mut TableValidator<'_,'_>) -> Result<BitRange, ()> {
-    let mut bit = bit_string.split(":");
-    let bit_range = match (bit.next(), bit.next(), bit.next()) {
-        (Some(msb), Some(lsb), None) => {
-            let msb: u16 = v.handle_error(msb.parse())?;
-            let lsb: u16 = v.handle_error(lsb.parse())?;
-
-            if msb < lsb {
-                return v.table_validation_error(format!("most significant bit is smaller than least significant bit (msb < lsb), value: '{}'", &bit_string));
-            } else {
-                BitRange {
-                    msb,
-                    lsb
-                }
-            }
-        }
-        (Some(single_bit), None, None) => {
-            let bit: u16 = v.handle_error(single_bit.parse())?;
-
-            BitRange {
-                msb: bit,
-                lsb: bit,
-            }
-        }
-        (_, _, Some(_)) => return v.table_validation_error(format!("invalid bit range '{}'", &bit_string)),
-        (None, _, None) => unreachable!(), // Iterator method 'next' should make this impossible to happen.
-    };
-
-    Ok(bit_range)
-}
-
-
 pub fn validate_enum_table(
     table: &TomlTable,
     data: &mut ParserContextAndErrors,
@@ -256,8 +267,7 @@ pub fn validate_enum_table(
 
     v.check_unknown_keys(POSSIBLE_KEYS_ENUM);
 
-    let bit_string = v.string(BIT_KEY).require()?;
-    let bit_range = validate_bit_range(&bit_string, &mut v)?;
+    let bit_range: BitRange = v.try_from_type(BIT_KEY).require()?;
     let description = v.string(DESCRIPTION_KEY).optional()?;
 
     let values = v.array_of_tables(VALUES_KEY).require()?
