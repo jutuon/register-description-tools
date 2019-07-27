@@ -6,6 +6,7 @@ use super::{
     ParserContextAndErrors,
     TableValidator,
     TomlTable,
+    Name,
     register_description::{
         RegisterDescription,
         Extension,
@@ -16,13 +17,13 @@ use super::{
 #[derive(Debug)]
 pub struct RegisterEnumValue {
     value: u64,
-    name: String,
+    name: Name,
     description: Option<String>,
 }
 
 #[derive(Debug)]
 pub struct RegisterEnum {
-    name: String,
+    name: Name,
     range: BitRange,
     values: Vec<RegisterEnumValue>,
     description: Option<String>,
@@ -38,7 +39,7 @@ pub struct BitRange {
 #[derive(Debug)]
 pub enum FunctionStatus {
     Reserved,
-    Normal { name: String, description: Option<String> },
+    Normal { name: Name, description: Option<String> },
 }
 
 #[derive(Debug)]
@@ -56,7 +57,7 @@ pub enum AccessMode {
 
 #[derive(Debug)]
 pub struct Register {
-    name: String,
+    name: Name,
     address: u64,
     access_mode: AccessMode,
     size_in_bits: u16,
@@ -95,7 +96,7 @@ pub fn validate_register_table(
 ) -> Result<Register, ()> {
     let mut v = TableValidator::new(table, CurrentTable::Register, data);
 
-    let name = v.string(NAME_KEY).require()?;
+    let name = v.name(NAME_KEY).require()?;
     v.push_context_identifier(format!("register '{}'", name));
 
     match &rd.extension {
@@ -196,7 +197,7 @@ pub fn validate_function_table(
     v.check_unknown_keys(POSSIBLE_KEYS_FUNCTION);
 
     let reserved = v.boolean(RESERVED_KEY).optional()?.unwrap_or(false);
-    let name = v.string(NAME_KEY).optional()?;
+    let name = v.name(NAME_KEY).optional()?;
     let description = v.string(DESCRIPTION_KEY).optional()?;
 
     let function_status = match (reserved, name) {
@@ -250,7 +251,7 @@ pub fn validate_enum_table(
 ) -> Result<RegisterEnum, ()> {
     let mut v = TableValidator::new(table, CurrentTable::Enum, data);
 
-    let name = v.string(NAME_KEY).require()?;
+    let name = v.name(NAME_KEY).require()?;
     v.push_context_identifier(format!("enum '{}'", name));
 
     v.check_unknown_keys(POSSIBLE_KEYS_ENUM);
@@ -279,7 +280,7 @@ pub fn validate_enum_value_table(
 ) -> Result<RegisterEnumValue, ()> {
     let mut v = TableValidator::new(table, CurrentTable::EnumValue, data);
 
-    let name = v.string(NAME_KEY).require()?;
+    let name = v.name(NAME_KEY).require()?;
     v.push_context_identifier(format!("enum value '{}'", name));
 
     v.check_unknown_keys(POSSIBLE_KEYS_ENUM_VALUE);

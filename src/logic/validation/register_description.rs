@@ -5,7 +5,13 @@ use std::{
     fmt,
 };
 
-use super::{CurrentTable, TableValidator, TomlTable, ParserContextAndErrors};
+use super::{
+    CurrentTable,
+    TableValidator,
+    TomlTable,
+    ParserContextAndErrors,
+    Name,
+};
 
 const VERSION_KEY: &str = "version";
 const NAME_KEY: &str = "name";
@@ -19,7 +25,7 @@ pub fn check_register_description(table: &TomlTable, data: &mut ParserContextAnd
     let mut v = TableValidator::new(table, CurrentTable::RegisterDescription, data);
     v.check_unknown_keys(POSSIBLE_KEYS);
 
-    let name = v.string(NAME_KEY).require()?;
+    let name = v.name(NAME_KEY).require()?;
     v.push_context_identifier(format!("register description '{}'", name));
     let version: SpecVersion = v.try_from_type(VERSION_KEY).require()?;
 
@@ -42,7 +48,7 @@ pub fn check_register_description(table: &TomlTable, data: &mut ParserContextAnd
 
 #[derive(Debug)]
 pub struct RegisterDescription {
-    pub name: String,
+    pub name: Name,
     pub description: Option<String>,
     pub version: SpecVersion,
     pub extension: Option<Extension>,

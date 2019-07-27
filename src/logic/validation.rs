@@ -1,7 +1,6 @@
 pub mod register_description;
 pub mod register;
 
-// TODO: Check name and description values with regex.
 // TODO: Check that register function bit ranges don't overlap
 //       and are inside register bounds.
 // TODO: Check that the same register enum bit range is defined also in the register
@@ -12,6 +11,9 @@ use std::{
     iter::Iterator,
     fmt,
 };
+
+use lazy_static::lazy_static;
+use regex::Regex;
 
 use toml::Value;
 
@@ -419,6 +421,46 @@ impl <'a, 'b> TableValidator<'a, 'b> {
         self.text(key).map::<_,_,String>(|text| {
             Ok(text.to_string())
         })
+    }
+
+    pub fn name<'c>(&'c mut self, key: &'static str) -> ValidatorResult<'c, 'a, 'b, Name> {
+        self.try_from_type(key)
+    }
+}
+
+#[derive(Debug)]
+pub struct Name(String);
+
+impl Name {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+impl fmt::Display for Name {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        String::fmt(&self.0, f)
+    }
+}
+
+impl TryFrom<&str> for Name {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        const NAME_REGEX: &str = "^[a-zA-Z]{1}([a-zA-Z0-9 ]*[a-zA-Z0-9]{1}|[a-zA-Z0-9]*)$";
+        lazy_static! {
+            static ref NAME_VALIDATOR: Regex = Regex::new(NAME_REGEX).unwrap();
+        }
+
+        if NAME_VALIDATOR.is_match(value) {
+            Ok(Name(value.to_string()))
+        } else {
+            Err(format!("name '{}' did not match with regex '{}'", value, NAME_REGEX))
+        }
     }
 }
 
