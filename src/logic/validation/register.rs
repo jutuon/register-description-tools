@@ -96,7 +96,7 @@ pub fn validate_register_table(
     let mut v = TableValidator::new(table, CurrentTable::Register, data);
 
     let name = v.string(NAME_KEY).require()?;
-    v.push_context_identifier(name.clone());
+    v.push_context_identifier(format!("register '{}'", name));
 
     match &rd.extension {
         Some(Extension::Vga) => v.check_unknown_keys(POSSIBLE_KEYS_REGISTER.iter().chain(&[INDEX_KEY])),
@@ -114,14 +114,14 @@ pub fn validate_register_table(
             (Some(v), None, None) => (AccessMode::Read, v),
             (None, Some(v), None) => (AccessMode::Write, v),
             (None, None, Some(v)) => (AccessMode::ReadWrite, v),
-            (None, None, None) => return v.table_validation_error(format!("Register access mode {}, {}, or {} is required.", READ_ADDRESS_KEY, WRITE_ADDRESS_KEY, READ_WRITE_ADDRESS_KEY)),
-            _ => return v.table_validation_error(format!("Access mode count error, only one access mode is supported.")),
+            (None, None, None) => return v.table_validation_error(format!("register access mode '{}', '{}', or '{}' is required", READ_ADDRESS_KEY, WRITE_ADDRESS_KEY, READ_WRITE_ADDRESS_KEY)),
+            _ => return v.table_validation_error(format!("access mode count error: only one access mode is supported")),
         };
 
         match (&rd.extension, value) {
             (_, Value::Integer(integer)) => {
                 if *integer < 0 {
-                    return v.table_validation_error(format!("Address can't be negative, value: {}", integer));
+                    return v.table_validation_error(format!("address can't be negative, found: '{}'", integer));
                 } else {
                     (access_mode, *integer as u64, None)
                 }
@@ -136,11 +136,11 @@ pub fn validate_register_table(
 
                     (access_mode, address1, Some(address2))
                 } else {
-                    return v.table_validation_error(format!("Address error. If address is string it must contain one question mark and start with '0x', value: {}", &number));
+                    return v.table_validation_error(format!("invalid address '{}', if address is string it must contain one question mark and start with '0x'", &number));
                 }
             }
             (_, value) => {
-                return v.table_validation_error(format!("Address error: unexpected type {:#?}", value));
+                return v.table_validation_error(format!("unexpected type {:?}", value));
             }
         }
     };
@@ -148,7 +148,7 @@ pub fn validate_register_table(
     let size_in_bits = v.u16(SIZE_IN_BITS_KEY).optional()?.or(rd.default_register_size_in_bits);
     let size_in_bits = match size_in_bits {
         Some(size) => size,
-        None => return v.table_validation_error(format!("Register size in bits error: size is undefined.")),
+        None => return v.table_validation_error(format!("register size is undefined")),
     };
 
     let functions = v.array_of_tables(FUNCTIONS_KEY).require()?
@@ -190,7 +190,7 @@ pub fn validate_function_table(
     let mut v = TableValidator::new(table, CurrentTable::Function, data);
 
     let bit_string = v.string(BIT_KEY).require()?;
-    v.push_context_identifier(format!("Function with bit range {}", &bit_string));
+    v.push_context_identifier(format!("function '{}'", &bit_string));
     let bit_range = validate_bit_range(&bit_string, &mut v)?;
 
     v.check_unknown_keys(POSSIBLE_KEYS_FUNCTION);
@@ -201,8 +201,8 @@ pub fn validate_function_table(
 
     let function_status = match (reserved, name) {
         (false, Some(name)) => FunctionStatus::Normal { name, description },
-        (false, None) => return v.table_validation_error(format!("Key {} is required.", NAME_KEY)),
-        (true, Some(_)) => return v.table_validation_error(format!("Key {} is not allowed when function is marked as reserved.", NAME_KEY)),
+        (false, None) => return v.table_validation_error(format!("missing key '{}'", NAME_KEY)),
+        (true, Some(_)) => return v.table_validation_error(format!("key '{}' is not allowed when function is marked as reserved", NAME_KEY)),
         (true, None) => FunctionStatus::Reserved,
     };
 
@@ -220,7 +220,7 @@ fn validate_bit_range(bit_string: &str, v: &mut TableValidator<'_,'_>) -> Result
             let lsb: u16 = v.handle_error(lsb.parse())?;
 
             if msb < lsb {
-                return v.table_validation_error(format!("Error: most significant bit is smaller than least significant bit (msb < lsb), value: {}", &bit_string));
+                return v.table_validation_error(format!("most significant bit is smaller than least significant bit (msb < lsb), value: '{}'", &bit_string));
             } else {
                 BitRange {
                     msb,
@@ -236,7 +236,7 @@ fn validate_bit_range(bit_string: &str, v: &mut TableValidator<'_,'_>) -> Result
                 lsb: bit,
             }
         }
-        (_, _, Some(_)) => return v.table_validation_error(format!("Invalid bit range: {}", &bit_string)),
+        (_, _, Some(_)) => return v.table_validation_error(format!("invalid bit range '{}'", &bit_string)),
         (None, _, None) => unreachable!(), // Iterator method 'next' should make this impossible to happen.
     };
 
@@ -251,7 +251,7 @@ pub fn validate_enum_table(
     let mut v = TableValidator::new(table, CurrentTable::Enum, data);
 
     let name = v.string(NAME_KEY).require()?;
-    v.push_context_identifier(name.to_string());
+    v.push_context_identifier(format!("enum '{}'", name));
 
     v.check_unknown_keys(POSSIBLE_KEYS_ENUM);
 
@@ -280,7 +280,7 @@ pub fn validate_enum_value_table(
     let mut v = TableValidator::new(table, CurrentTable::EnumValue, data);
 
     let name = v.string(NAME_KEY).require()?;
-    v.push_context_identifier(name.to_string());
+    v.push_context_identifier(format!("enum value '{}'", name));
 
     v.check_unknown_keys(POSSIBLE_KEYS_ENUM_VALUE);
 

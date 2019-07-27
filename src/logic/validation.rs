@@ -1,7 +1,6 @@
 pub mod register_description;
 pub mod register;
 
-// TODO: Improve the error messages.
 // TODO: Check name and description values with regex.
 // TODO: Check that register function bit ranges don't overlap
 //       and are inside register bounds.
@@ -11,6 +10,7 @@ pub mod register;
 use std::{
     convert::TryFrom,
     iter::Iterator,
+    fmt,
 };
 
 use toml::Value;
@@ -43,6 +43,17 @@ pub enum ValidationError {
     /// For example defining register function to bit 15 when register size is 8 bit
     /// produces this error.
     TableValidationError { table: CurrentTable, context: String, error: String },
+}
+
+impl fmt::Display for ValidationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ValidationError::MissingKey { table, context, key} => write!(f, "error: key '{}' is missing from table type '{:?}'{}", key, table, context),
+            ValidationError::UnknownKey { table, context, key} => write!(f, "error: unsupported key '{}' in table type '{:?}'{}", key, table, context),
+            ValidationError::ValueValidationError { table, context, key, error} => write!(f, "error: {}, key: '{}', table type: '{:?}'{}", error, key, table, context),
+            ValidationError::TableValidationError { table, context, error } => write!(f, "error: {}, table type: '{:?}'{}", error, table, context),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -103,13 +114,13 @@ pub fn check_root_table(root: TomlTable) -> Result<ParsedFile, Vec<ValidationErr
                         groups.push((key.to_string(), registers));
                     },
                     invalid_type => {
-                        v.value_validation_error(format!("Error while validating register group {}: expected an array, value: {:#?}", key, invalid_type));
+                        v.value_validation_error(format!("validating register group '{}' failed: expected an array, found {:?}", key, invalid_type));
                     }
                 }
             }
         }
         Ok(Some(invalid_type)) => {
-            v.value_validation_error(format!("Expected a table or an array, value: {:#?}", invalid_type));
+            v.value_validation_error(format!("expected a table or an array, found: {:?}", invalid_type));
         }
         Err(()) | Ok(None) => (),
     }
@@ -134,7 +145,7 @@ pub fn handle_register_array(array: &TomlArray, v: &mut TableValidator, parsed_f
                 }
             },
             invalid_type => {
-                v.value_validation_error(format!("Expected an array of tables, value: {:#?}", invalid_type));
+                v.value_validation_error(format!("expected an array of tables, found: {:?},", invalid_type));
             }
         }
     }
@@ -185,7 +196,7 @@ impl <'a> ErrorContext<'a> {
     fn unknown_key(&mut self, unknown_key: String) {
         self.data.errors.push(ValidationError::UnknownKey {
             table: self.ct,
-            context: format!("{:?}", self.data.context_stack),
+            context: self.context_stack_string(),
             key: unknown_key,
         });
     }
@@ -194,7 +205,7 @@ impl <'a> ErrorContext<'a> {
     fn missing_key(&mut self) {
         self.data.errors.push(ValidationError::MissingKey {
             table: self.ct,
-            context: format!("{:?}", self.data.context_stack),
+            context: self.context_stack_string(),
             key: self.current_key
         });
     }
@@ -203,7 +214,7 @@ impl <'a> ErrorContext<'a> {
     fn value_validation_error(&mut self, error: String) {
         self.data.errors.push(ValidationError::ValueValidationError {
             table: self.ct,
-            context: format!("{:?}", self.data.context_stack),
+            context: self.context_stack_string(),
             key: self.current_key,
             error,
         });
@@ -213,13 +224,22 @@ impl <'a> ErrorContext<'a> {
     fn table_validation_error(&mut self, error: String) {
         self.data.errors.push(ValidationError::TableValidationError{
             table: self.ct,
-            context: format!("{:?}", self.data.context_stack),
+            context: self.context_stack_string(),
             error
         });
     }
 
     fn data_mut(&mut self) -> &mut ParserContextAndErrors {
         &mut self.data
+    }
+
+    fn context_stack_string(&self) -> String {
+        let mut ct = format!("");
+        for s in &self.data.context_stack {
+            ct.push_str("\n\t--> ");
+            ct.push_str(s);
+        }
+        ct
     }
 }
 
@@ -306,7 +326,7 @@ impl <'a, 'b> TableValidator<'a, 'b> {
             match item.as_array() {
                 Some(x) => Ok(x),
                 None => {
-                    ec.value_validation_error(format!("Expected an array, found: {:#?}", item));
+                    ec.value_validation_error(format!("expected an array, found: {:?}", item));
                     Err(())
                 }
             }
@@ -319,7 +339,7 @@ impl <'a, 'b> TableValidator<'a, 'b> {
             match array.first() {
                 Some(Value::Table(_)) | None => Ok(array.iter().map(|x| x.as_table().unwrap())),
                 Some(_) => {
-                    Err(format!("Expected an array of tables, found: {:#?}", array))
+                    Err(format!("expected an array of tables, found: {:?}", array))
                 }
             }
         })
@@ -330,7 +350,7 @@ impl <'a, 'b> TableValidator<'a, 'b> {
             match item.as_table() {
                 Some(x) => Ok(x),
                 None => {
-                    ec.value_validation_error(format!("Expected a table, found: {:#?}", item));
+                    ec.value_validation_error(format!("expected a table, found: {:?}", item));
                     Err(())
                 }
             }
@@ -343,7 +363,7 @@ impl <'a, 'b> TableValidator<'a, 'b> {
             match item.as_bool() {
                 Some(x) => Ok(x),
                 None => {
-                    ec.value_validation_error(format!("Expected a boolean, found: {:#?}", item));
+                    ec.value_validation_error(format!("expected a boolean, found: {:?}", item));
                     Err(())
                 }
             }
@@ -356,7 +376,7 @@ impl <'a, 'b> TableValidator<'a, 'b> {
             match item.as_integer() {
                 Some(x) => Ok(x),
                 None => {
-                    ec.value_validation_error(format!("Expected an integer, found: {:#?}", item));
+                    ec.value_validation_error(format!("expected an integer, found: {:?}", item));
                     Err(())
                 }
             }
@@ -369,7 +389,7 @@ impl <'a, 'b> TableValidator<'a, 'b> {
             match item.as_str() {
                 Some(text) => Ok(text),
                 None => {
-                    ec.value_validation_error(format!("Expected a String, found: {:#?}", item));
+                    ec.value_validation_error(format!("expected a string, found: {:?}", item));
                     Err(())
                 }
             }
@@ -380,9 +400,9 @@ impl <'a, 'b> TableValidator<'a, 'b> {
     pub fn u16<'c>(&'c mut self, key: &'static str) -> ValidatorResult<'c, 'a, 'b, u16> {
         self.integer(key).map(|number| {
             if number < 0 {
-                Err(format!("Value for key {} is negative, value: {}", key, number))
+                Err(format!("negative value '{}'", number))
             } else if number > u16::max_value() as i64 {
-                Err(format!("Value for key {} is larger than u16::max_value(), value: {}", key, number))
+                Err(format!("larger value than u16::max_value '{}'", number))
             } else {
                 Ok(number as u16)
             }

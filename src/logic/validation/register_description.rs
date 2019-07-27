@@ -20,7 +20,7 @@ pub fn check_register_description(table: &TomlTable, data: &mut ParserContextAnd
     v.check_unknown_keys(POSSIBLE_KEYS);
 
     let name = v.string(NAME_KEY).require()?;
-    v.push_context_identifier(name.clone());
+    v.push_context_identifier(format!("register description '{}'", name));
     let version: SpecVersion = v.try_from_type(VERSION_KEY).require()?;
 
 
@@ -63,7 +63,7 @@ impl TryFrom<&str> for SpecVersion {
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
             VERSION_ZERO_ONE => Ok(SpecVersion::VersionZeroOne),
-            unknown_version => Err(format!("Unknown register description specification version {}", unknown_version))
+            unknown_version => Err(format!("unknown register description specification version '{}'", unknown_version))
         }
     }
 }
@@ -89,7 +89,7 @@ impl TryFrom<&str> for Extension {
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
             EXTENSION_VGA => Ok(Extension::Vga),
-            unknown => Err(format!("Unknown extension {}", unknown))
+            unknown => Err(format!("unknown extension '{}'", unknown))
         }
     }
 }
