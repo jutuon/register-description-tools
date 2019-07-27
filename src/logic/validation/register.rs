@@ -153,22 +153,14 @@ pub fn validate_register_table(
     };
 
     let mut functions = vec![];
-    for array in v.array(FUNCTIONS_KEY).require()? {
-        match array {
-            Value::Table(t) => {
-                let _ = validate_function_table(t, v.data_mut(), &mut functions);
-            },
-            value => return v.table_validation_error(format!("Expected array of tables, value: {:#?}", value)),
-        }
+    for t in v.array_of_tables(FUNCTIONS_KEY).require()? {
+        let _ = validate_function_table(t, v.data_mut(), &mut functions);
     }
 
     let mut enums = vec![];
-    for array in v.array(ENUMS_KEY).optional()?.map(|x| x.as_slice()).unwrap_or_default() {
-        match array {
-            Value::Table(t) => {
-                let _ = validate_enum_table(t, v.data_mut(),&mut enums);
-            },
-            value => return v.table_validation_error(format!("Expected array of tables, value: {:#?}", value)),
+    if let Some(table_iter) = v.array_of_tables(ENUMS_KEY).optional()? {
+        for t in table_iter {
+            let _ = validate_enum_table(t, v.data_mut(), &mut enums);
         }
     }
 
@@ -275,13 +267,8 @@ pub fn validate_enum_table(
     let description = v.string(DESCRIPTION_KEY).optional()?;
 
     let mut values = vec![];
-    for array in v.array(VALUES_KEY).require()? {
-        match array {
-            Value::Table(t) => {
-                let _ = validate_enum_value_table(t, v.data_mut(), &mut values);
-            },
-            value => return v.table_validation_error(format!("Expected array of tables, value: {:#?}", value)),
-        }
+    for t in v.array_of_tables(VALUES_KEY).require()? {
+        let _ = validate_enum_value_table(t, v.data_mut(), &mut values);
     }
 
     let register_enum = RegisterEnum {

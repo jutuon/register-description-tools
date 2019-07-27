@@ -312,6 +312,17 @@ impl <'a, 'b> TableValidator<'a, 'b> {
         ValidatorResult(r, self)
     }
 
+    pub fn array_of_tables<'c>(&'c mut self, key: &'static str) -> ValidatorResult<'c, 'a, 'b, impl Iterator<Item=&'a TomlTable>> {
+        self.array(key).map(|array| {
+            match array.first() {
+                Some(Value::Table(_)) | None => Ok(array.iter().map(|x| x.as_table().unwrap())),
+                Some(_) => {
+                    Err(format!("Expected an array of tables, found: {:#?}", array))
+                }
+            }
+        })
+    }
+
     pub fn table<'c>(&'c mut self, key: &'static str) -> ValidatorResult<'c, 'a, 'b, &'a TomlTable> {
         let r = optional_key_check(self.table, key, &mut self.ec, |item, ec| {
             match item.as_table() {
