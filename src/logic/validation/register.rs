@@ -43,7 +43,11 @@ pub struct BitRange {
 
 impl fmt::Display for BitRange {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}:{}", self.msb, self.lsb)
+        if self.msb == self.lsb {
+            write!(f, "{}", self.msb)
+        } else {
+            write!(f, "{}:{}", self.msb, self.lsb)
+        }
     }
 }
 
