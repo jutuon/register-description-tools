@@ -64,11 +64,9 @@ const POSSIBLE_ROOT_KEYS: &[&str] = &[REGISTER_DESCRIPTION_KEY, REGISTER_KEY];
 
 pub fn check_root_table(root: TomlTable) -> Result<ParsedFile, Vec<ValidationError>> {
     let mut errors: Vec<ValidationError> = vec![];
-    let mut ec = ErrorContext::new(CurrentTable::Root, &mut errors);
 
-    check_unknown_keys(&root, POSSIBLE_ROOT_KEYS, &mut ec);
-
-    let mut v = TableValidator::new(&root, &mut ec);
+    let mut v = TableValidator::new(&root, CurrentTable::Root, &mut errors);
+    v.check_unknown_keys(POSSIBLE_ROOT_KEYS);
 
     let rd = match v.table(REGISTER_DESCRIPTION_KEY).require() {
         Ok(table) => {
@@ -134,18 +132,7 @@ pub fn handle_register_array(array: &TomlArray, v: &mut TableValidator, parsed_f
     registers
 }
 
-pub fn check_unknown_keys<T: AsRef<str>, U: Iterator<Item=T> + Clone, V: IntoIterator<Item=T, IntoIter=U>>(table: &TomlTable, possible_keys: V, ec: &mut ErrorContext) {
-    let possible_keys = possible_keys.into_iter();
-    for (k, _) in table.iter() {
-        let mut possible_keys = possible_keys.clone();
-        if possible_keys.find(|key_text| &k.as_str() == &key_text.as_ref()).is_none() {
-            ec.unknown_key(k.to_string())
-        }
-    }
-}
-
-
-pub struct ErrorContext<'a> {
+struct ErrorContext<'a> {
     ct: CurrentTable,
     context: Vec<String>,
     current_key: &'static str,
@@ -153,7 +140,7 @@ pub struct ErrorContext<'a> {
 }
 
 impl <'a> ErrorContext<'a> {
-    pub fn new(ct: CurrentTable, errors: &'a mut Vec<ValidationError>) -> Self {
+    fn new(ct: CurrentTable, errors: &'a mut Vec<ValidationError>) -> Self {
         Self {
             ct,
             context: vec![],
@@ -217,7 +204,7 @@ impl <'a> ErrorContext<'a> {
 }
 
 /// Validator closure can assume that item != Item::None.
-pub fn optional_key_check<'a, 'b, T, U: FnMut(&'a TomlValue, &mut ErrorContext) -> Result<T, ()>>(
+fn optional_key_check<'a, 'b, T, U: FnMut(&'a TomlValue, &mut ErrorContext) -> Result<T, ()>>(
     table: &'a TomlTable,
     key: &'static str,
     ec: &'b mut ErrorContext,
@@ -232,17 +219,26 @@ pub fn optional_key_check<'a, 'b, T, U: FnMut(&'a TomlValue, &mut ErrorContext) 
 
 pub struct TableValidator<'a, 'b> {
     table: &'a TomlTable,
-    ec: &'b mut ErrorContext<'b>,
+    ec: ErrorContext<'b>,
 }
 
 impl <'a, 'b> TableValidator<'a, 'b> {
-    pub fn new(table: &'a TomlTable, ec: &'b mut ErrorContext<'b>) -> Self {
+    pub fn new(table: &'a TomlTable, ct: CurrentTable, errors: &'b mut Vec<ValidationError>) -> Self {
         Self {
             table,
-            ec,
+            ec: ErrorContext::new(ct, errors),
         }
     }
 
+    pub fn check_unknown_keys<T: AsRef<str>, U: Iterator<Item=T> + Clone, V: IntoIterator<Item=T, IntoIter=U>>(&mut self, possible_keys: V) {
+        let possible_keys = possible_keys.into_iter();
+        for (k, _) in self.table.iter() {
+            let mut possible_keys = possible_keys.clone();
+            if possible_keys.find(|key_text| &k.as_str() == &key_text.as_ref()).is_none() {
+                self.ec.unknown_key(k.to_string())
+            }
+        }
+    }
 
     pub fn push_context_identifier(&mut self, text: String) {
         self.ec.push_context_identifier(text);
@@ -250,10 +246,6 @@ impl <'a, 'b> TableValidator<'a, 'b> {
 
     pub fn pop_context_identifier(&mut self) {
         self.ec.pop_context_identifier();
-    }
-
-    pub fn error_context_mut(&mut self) -> &mut ErrorContext<'b> {
-        &mut self.ec
     }
 
     pub fn errors_mut(&mut self) -> &mut Vec<ValidationError> {

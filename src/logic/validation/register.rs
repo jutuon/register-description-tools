@@ -4,7 +4,6 @@ use toml::Value;
 use super::{
     ValidationError,
     CurrentTable,
-    ErrorContext,
     TableValidator,
     TomlTable,
     register_description::{
@@ -95,17 +94,16 @@ pub fn validate_register_table(
     errors: &mut Vec<ValidationError>,
     registers: &mut Vec<Register>,
 ) -> Result<(),()> {
-    let mut ec = ErrorContext::new(CurrentTable::Register, errors);
-
-    match &rd.extension {
-        Some(Extension::Vga) => super::check_unknown_keys(table, POSSIBLE_KEYS_REGISTER.iter().chain(&[INDEX_KEY]), &mut ec),
-        None => super::check_unknown_keys(table, POSSIBLE_KEYS_REGISTER, &mut ec),
-    }
-
-    let mut v = TableValidator::new(table, &mut ec);
+    let mut v = TableValidator::new(table, CurrentTable::Register, errors);
 
     let name = v.string(NAME_KEY).require()?;
     v.push_context_identifier(name.clone());
+
+    match &rd.extension {
+        Some(Extension::Vga) => v.check_unknown_keys(POSSIBLE_KEYS_REGISTER.iter().chain(&[INDEX_KEY])),
+        None => v.check_unknown_keys(POSSIBLE_KEYS_REGISTER),
+    }
+
     let description = v.string(DESCRIPTION_KEY).optional()?;
 
     let (access_mode, address, alternative_address) = {
@@ -200,15 +198,14 @@ pub fn validate_function_table(
     errors: &mut Vec<ValidationError>,
     functions: &mut Vec<RegisterFunction>,
 ) -> Result<(),()> {
-    let mut ec = ErrorContext::new(CurrentTable::Function, errors);
-    super::check_unknown_keys(table, POSSIBLE_KEYS_FUNCTION, &mut ec);
-
-    let mut v = TableValidator::new(table, &mut ec);
+    let mut v = TableValidator::new(table, CurrentTable::Function, errors);
     v.push_context_identifier(register_name.to_string());
 
     let bit_string = v.string(BIT_KEY).require()?;
     v.push_context_identifier(format!("Function with bit range {}", &bit_string));
     let bit_range = validate_bit_range(&bit_string, &mut v)?;
+
+    v.check_unknown_keys(POSSIBLE_KEYS_FUNCTION);
 
     let reserved = v.boolean(RESERVED_KEY).optional()?.unwrap_or(false);
     let name = v.string(NAME_KEY).optional()?;
@@ -269,14 +266,13 @@ pub fn validate_enum_table(
     errors: &mut Vec<ValidationError>,
     enums: &mut Vec<RegisterEnum>,
 ) -> Result<(),()> {
-    let mut ec = ErrorContext::new(CurrentTable::Enum, errors);
-    super::check_unknown_keys(table, POSSIBLE_KEYS_ENUM, &mut ec);
-
-    let mut v = TableValidator::new(table, &mut ec);
+    let mut v = TableValidator::new(table, CurrentTable::Enum, errors);
     v.push_context_identifier(register_name.to_string());
 
     let name = v.string(NAME_KEY).require()?;
     v.push_context_identifier(name.to_string());
+
+    v.check_unknown_keys(POSSIBLE_KEYS_ENUM);
 
     let bit_string = v.string(BIT_KEY).require()?;
     let bit_range = validate_bit_range(&bit_string, &mut v)?;
@@ -311,15 +307,14 @@ pub fn validate_enum_value_table(
     errors: &mut Vec<ValidationError>,
     enum_values: &mut Vec<RegisterEnumValue>,
 ) -> Result<(),()> {
-    let mut ec = ErrorContext::new(CurrentTable::EnumValue, errors);
-    super::check_unknown_keys(table, POSSIBLE_KEYS_ENUM_VALUE, &mut ec);
-
-    let mut v = TableValidator::new(table, &mut ec);
+    let mut v = TableValidator::new(table, CurrentTable::EnumValue, errors);
     v.push_context_identifier(register_name.to_string());
     v.push_context_identifier(enum_name.to_string());
 
     let name = v.string(NAME_KEY).require()?;
     v.push_context_identifier(name.to_string());
+
+    v.check_unknown_keys(POSSIBLE_KEYS_ENUM_VALUE);
 
     let value = v.integer(VALUE_KEY).require()? as u64;
     let description = v.string(DESCRIPTION_KEY).optional()?;
