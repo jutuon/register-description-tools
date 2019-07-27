@@ -129,7 +129,9 @@ pub fn handle_register_array(array: &TomlArray, v: &mut TableValidator, parsed_f
     for value in array {
         match value {
             Value::Table(register_table) => {
-                let _ = register::validate_register_table(register_table, &parsed_file.description, v.data_mut(), &mut registers);
+                if let Ok(r) = register::validate_register_table(register_table, &parsed_file.description, v.data_mut()) {
+                    registers.push(r);
+                }
             },
             invalid_type => {
                 v.value_validation_error(format!("Expected an array of tables, value: {:#?}", invalid_type));

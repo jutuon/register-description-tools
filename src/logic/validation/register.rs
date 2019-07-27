@@ -92,8 +92,7 @@ pub fn validate_register_table(
     table: &TomlTable,
     rd: &RegisterDescription,
     data: &mut ParserContextAndErrors,
-    registers: &mut Vec<Register>,
-) -> Result<(),()> {
+) -> Result<Register, ()> {
     let mut v = TableValidator::new(table, CurrentTable::Register, data);
 
     let name = v.string(NAME_KEY).require()?;
@@ -152,21 +151,25 @@ pub fn validate_register_table(
         None => return v.table_validation_error(format!("Register size in bits error: size is undefined.")),
     };
 
-    let mut functions = vec![];
-    for t in v.array_of_tables(FUNCTIONS_KEY).require()? {
-        let _ = validate_function_table(t, v.data_mut(), &mut functions);
-    }
+    let functions = v.array_of_tables(FUNCTIONS_KEY).require()?
+        .map(|t| validate_function_table(t, v.data_mut()))
+        .filter(|r| r.is_ok())
+        .map(|r| r.unwrap())
+        .collect();
 
-    let mut enums = vec![];
-    if let Some(table_iter) = v.array_of_tables(ENUMS_KEY).optional()? {
-        for t in table_iter {
-            let _ = validate_enum_table(t, v.data_mut(), &mut enums);
-        }
-    }
+    let enums = if let Some(iter) = v.array_of_tables(ENUMS_KEY).optional()? {
+        iter.map(|t| validate_enum_table(t, v.data_mut()))
+            .filter(|r| r.is_ok())
+            .map(|r| r.unwrap())
+            .collect()
+    } else {
+        vec![]
+    };
+
 
     let index = v.u16(INDEX_KEY).optional()?;
 
-    let register = Register {
+    Ok(Register {
         name,
         address,
         access_mode,
@@ -176,19 +179,14 @@ pub fn validate_register_table(
         functions,
         enums,
         index,
-    };
-
-    registers.push(register);
-
-    Ok(())
+    })
 }
 
 
 pub fn validate_function_table(
     table: &TomlTable,
     data: &mut ParserContextAndErrors,
-    functions: &mut Vec<RegisterFunction>,
-) -> Result<(),()> {
+) -> Result<RegisterFunction, ()> {
     let mut v = TableValidator::new(table, CurrentTable::Function, data);
 
     let bit_string = v.string(BIT_KEY).require()?;
@@ -208,14 +206,10 @@ pub fn validate_function_table(
         (true, None) => FunctionStatus::Reserved,
     };
 
-    let function = RegisterFunction {
+    Ok(RegisterFunction {
         range: bit_range,
         status: function_status,
-    };
-
-    functions.push(function);
-
-    Ok(())
+    })
 }
 
 fn validate_bit_range(bit_string: &str, v: &mut TableValidator<'_,'_>) -> Result<BitRange, ()> {
@@ -253,8 +247,7 @@ fn validate_bit_range(bit_string: &str, v: &mut TableValidator<'_,'_>) -> Result
 pub fn validate_enum_table(
     table: &TomlTable,
     data: &mut ParserContextAndErrors,
-    enums: &mut Vec<RegisterEnum>,
-) -> Result<(),()> {
+) -> Result<RegisterEnum, ()> {
     let mut v = TableValidator::new(table, CurrentTable::Enum, data);
 
     let name = v.string(NAME_KEY).require()?;
@@ -266,28 +259,24 @@ pub fn validate_enum_table(
     let bit_range = validate_bit_range(&bit_string, &mut v)?;
     let description = v.string(DESCRIPTION_KEY).optional()?;
 
-    let mut values = vec![];
-    for t in v.array_of_tables(VALUES_KEY).require()? {
-        let _ = validate_enum_value_table(t, v.data_mut(), &mut values);
-    }
+    let values = v.array_of_tables(VALUES_KEY).require()?
+        .map(|t| validate_enum_value_table(t, v.data_mut()))
+        .filter(|r| r.is_ok())
+        .map(|r| r.unwrap())
+        .collect();
 
-    let register_enum = RegisterEnum {
+    Ok(RegisterEnum {
         name,
         range: bit_range,
         description,
         values
-    };
-
-    enums.push(register_enum);
-
-    Ok(())
+    })
 }
 
 pub fn validate_enum_value_table(
     table: &TomlTable,
     data: &mut ParserContextAndErrors,
-    enum_values: &mut Vec<RegisterEnumValue>,
-) -> Result<(),()> {
+) -> Result<RegisterEnumValue, ()> {
     let mut v = TableValidator::new(table, CurrentTable::EnumValue, data);
 
     let name = v.string(NAME_KEY).require()?;
@@ -298,13 +287,9 @@ pub fn validate_enum_value_table(
     let value = v.integer(VALUE_KEY).require()? as u64;
     let description = v.string(DESCRIPTION_KEY).optional()?;
 
-    let enum_value = RegisterEnumValue {
+    Ok(RegisterEnumValue {
         value,
         name,
         description,
-    };
-
-    enum_values.push(enum_value);
-
-    Ok(())
+    })
 }
