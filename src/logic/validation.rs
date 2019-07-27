@@ -63,19 +63,25 @@ const REGISTER_KEY: &str = "register";
 const POSSIBLE_ROOT_KEYS: &[&str] = &[REGISTER_DESCRIPTION_KEY, REGISTER_KEY];
 
 pub fn check_root_table(root: TomlTable) -> Result<ParsedFile, Vec<ValidationError>> {
-    let mut errors: Vec<ValidationError> = vec![];
+    let mut data = ParserContextAndErrors::default();
 
-    let mut v = TableValidator::new(&root, CurrentTable::Root, &mut errors);
+    let mut v = TableValidator::new(&root, CurrentTable::Root, &mut data);
     v.check_unknown_keys(POSSIBLE_ROOT_KEYS);
 
     let rd = match v.table(REGISTER_DESCRIPTION_KEY).require() {
         Ok(table) => {
-            match register_description::check_register_description(table, v.errors_mut()) {
+            match register_description::check_register_description(table, v.data_mut()) {
                 Ok(rd) => rd,
-                Err(()) => return Err(errors),
+                Err(()) => {
+                    drop(v);
+                    return Err(data.errors)
+                }
             }
         },
-        Err(()) => return Err(errors),
+        Err(()) => {
+            drop(v);
+            return Err(data.errors);
+        }
     };
 
     let mut parsed_file = ParsedFile {
@@ -108,11 +114,12 @@ pub fn check_root_table(root: TomlTable) -> Result<ParsedFile, Vec<ValidationErr
         Err(()) | Ok(None) => (),
     }
 
+    drop(v);
 
-    if errors.len() == 0 {
+    if data.errors.len() == 0 {
         Ok(parsed_file)
     } else {
-        Err(errors)
+        Err(data.errors)
     }
 
 }
@@ -122,7 +129,7 @@ pub fn handle_register_array(array: &TomlArray, v: &mut TableValidator, parsed_f
     for value in array {
         match value {
             Value::Table(register_table) => {
-                let _ = register::validate_register_table(register_table, &parsed_file.description, v.errors_mut(), &mut registers);
+                let _ = register::validate_register_table(register_table, &parsed_file.description, v.data_mut(), &mut registers);
             },
             invalid_type => {
                 v.value_validation_error(format!("Expected an array of tables, value: {:#?}", invalid_type));
@@ -132,29 +139,40 @@ pub fn handle_register_array(array: &TomlArray, v: &mut TableValidator, parsed_f
     registers
 }
 
+#[derive(Default)]
+pub struct ParserContextAndErrors {
+    context_stack: Vec<String>,
+    errors: Vec<ValidationError>,
+}
+
 struct ErrorContext<'a> {
     ct: CurrentTable,
-    context: Vec<String>,
     current_key: &'static str,
-    errors: &'a mut Vec<ValidationError>,
+    context_stack_push_count: usize,
+    data: &'a mut ParserContextAndErrors,
+}
+
+impl Drop for ErrorContext<'_> {
+    fn drop(&mut self) {
+        for _ in 0..self.context_stack_push_count {
+            self.data.context_stack.pop();
+        }
+    }
 }
 
 impl <'a> ErrorContext<'a> {
-    fn new(ct: CurrentTable, errors: &'a mut Vec<ValidationError>) -> Self {
+    fn new(ct: CurrentTable, data: &'a mut ParserContextAndErrors) -> Self {
         Self {
             ct,
-            context: vec![],
             current_key: "current key is uninitialized",
-            errors,
+            context_stack_push_count: 0,
+            data,
         }
     }
 
     fn push_context_identifier(&mut self, text: String) {
-        self.context.push(text);
-    }
-
-    fn pop_context_identifier(&mut self) {
-        self.context.pop();
+        self.context_stack_push_count = self.context_stack_push_count.checked_add(1).expect("ErrorContext self.context_stack_push_count overflowed.");
+        self.data.context_stack.push(text);
     }
 
     fn change_current_key(&mut self, new: &'static str) {
@@ -163,27 +181,27 @@ impl <'a> ErrorContext<'a> {
 
     /// Add error with current table information.
     fn unknown_key(&mut self, unknown_key: String) {
-        self.errors.push(ValidationError::UnknownKey {
+        self.data.errors.push(ValidationError::UnknownKey {
             table: self.ct,
-            context: format!("{:?}", self.context),
+            context: format!("{:?}", self.data.context_stack),
             key: unknown_key,
         });
     }
 
     /// Add error with current table and current key information.
     fn missing_key(&mut self) {
-        self.errors.push(ValidationError::MissingKey {
+        self.data.errors.push(ValidationError::MissingKey {
             table: self.ct,
-            context: format!("{:?}", self.context),
+            context: format!("{:?}", self.data.context_stack),
             key: self.current_key
         });
     }
 
     /// Add error with current table and current key information.
     fn value_validation_error(&mut self, error: String) {
-        self.errors.push(ValidationError::ValueValidationError {
+        self.data.errors.push(ValidationError::ValueValidationError {
             table: self.ct,
-            context: format!("{:?}", self.context),
+            context: format!("{:?}", self.data.context_stack),
             key: self.current_key,
             error,
         });
@@ -191,15 +209,15 @@ impl <'a> ErrorContext<'a> {
 
     /// Add error with current table information.
     fn table_validation_error(&mut self, error: String) {
-        self.errors.push(ValidationError::TableValidationError{
+        self.data.errors.push(ValidationError::TableValidationError{
             table: self.ct,
-            context: format!("{:?}", self.context),
+            context: format!("{:?}", self.data.context_stack),
             error
         });
     }
 
-    fn errors_mut(&mut self) -> &mut Vec<ValidationError> {
-        &mut self.errors
+    fn data_mut(&mut self) -> &mut ParserContextAndErrors {
+        &mut self.data
     }
 }
 
@@ -223,10 +241,10 @@ pub struct TableValidator<'a, 'b> {
 }
 
 impl <'a, 'b> TableValidator<'a, 'b> {
-    pub fn new(table: &'a TomlTable, ct: CurrentTable, errors: &'b mut Vec<ValidationError>) -> Self {
+    pub fn new(table: &'a TomlTable, ct: CurrentTable, data: &'b mut ParserContextAndErrors) -> Self {
         Self {
             table,
-            ec: ErrorContext::new(ct, errors),
+            ec: ErrorContext::new(ct, data),
         }
     }
 
@@ -244,12 +262,8 @@ impl <'a, 'b> TableValidator<'a, 'b> {
         self.ec.push_context_identifier(text);
     }
 
-    pub fn pop_context_identifier(&mut self) {
-        self.ec.pop_context_identifier();
-    }
-
-    pub fn errors_mut(&mut self) -> &mut Vec<ValidationError> {
-        self.ec.errors_mut()
+    pub fn data_mut(&mut self) -> &mut ParserContextAndErrors {
+        self.ec.data_mut()
     }
 
     pub fn value_validation_error(&mut self, message: String) {

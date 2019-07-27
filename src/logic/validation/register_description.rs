@@ -5,7 +5,7 @@ use std::{
     fmt,
 };
 
-use super::{ValidationError, CurrentTable, TableValidator, TomlTable};
+use super::{CurrentTable, TableValidator, TomlTable, ParserContextAndErrors};
 
 const VERSION_KEY: &str = "version";
 const NAME_KEY: &str = "name";
@@ -15,8 +15,8 @@ const EXTENSION_KEY: &str = "extension";
 
 const POSSIBLE_KEYS: &[&str] = &[VERSION_KEY, NAME_KEY, DESCRIPTION_KEY, DEFAULT_REGISTER_SIZE_KEY, EXTENSION_KEY];
 
-pub fn check_register_description(table: &TomlTable, errors: &mut Vec<ValidationError>) -> Result<RegisterDescription, ()> {
-    let mut v = TableValidator::new(table, CurrentTable::RegisterDescription, errors);
+pub fn check_register_description(table: &TomlTable, data: &mut ParserContextAndErrors) -> Result<RegisterDescription, ()> {
+    let mut v = TableValidator::new(table, CurrentTable::RegisterDescription, data);
     v.check_unknown_keys(POSSIBLE_KEYS);
 
     let name = v.string(NAME_KEY).require()?;

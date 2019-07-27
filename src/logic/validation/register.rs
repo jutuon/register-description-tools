@@ -2,8 +2,8 @@
 use toml::Value;
 
 use super::{
-    ValidationError,
     CurrentTable,
+    ParserContextAndErrors,
     TableValidator,
     TomlTable,
     register_description::{
@@ -91,10 +91,10 @@ const POSSIBLE_KEYS_ENUM_VALUE: &[&str] = &[VALUE_KEY, NAME_KEY, DESCRIPTION_KEY
 pub fn validate_register_table(
     table: &TomlTable,
     rd: &RegisterDescription,
-    errors: &mut Vec<ValidationError>,
+    data: &mut ParserContextAndErrors,
     registers: &mut Vec<Register>,
 ) -> Result<(),()> {
-    let mut v = TableValidator::new(table, CurrentTable::Register, errors);
+    let mut v = TableValidator::new(table, CurrentTable::Register, data);
 
     let name = v.string(NAME_KEY).require()?;
     v.push_context_identifier(name.clone());
@@ -156,7 +156,7 @@ pub fn validate_register_table(
     for array in v.array(FUNCTIONS_KEY).require()? {
         match array {
             Value::Table(t) => {
-                let _ = validate_function_table(&name, t, v.errors_mut(), &mut functions);
+                let _ = validate_function_table(t, v.data_mut(), &mut functions);
             },
             value => return v.table_validation_error(format!("Expected array of tables, value: {:#?}", value)),
         }
@@ -166,7 +166,7 @@ pub fn validate_register_table(
     for array in v.array(ENUMS_KEY).optional()?.map(|x| x.as_slice()).unwrap_or_default() {
         match array {
             Value::Table(t) => {
-                let _ = validate_enum_table(&name, t, v.errors_mut(),&mut enums);
+                let _ = validate_enum_table(t, v.data_mut(),&mut enums);
             },
             value => return v.table_validation_error(format!("Expected array of tables, value: {:#?}", value)),
         }
@@ -193,13 +193,11 @@ pub fn validate_register_table(
 
 
 pub fn validate_function_table(
-    register_name: &str,
     table: &TomlTable,
-    errors: &mut Vec<ValidationError>,
+    data: &mut ParserContextAndErrors,
     functions: &mut Vec<RegisterFunction>,
 ) -> Result<(),()> {
-    let mut v = TableValidator::new(table, CurrentTable::Function, errors);
-    v.push_context_identifier(register_name.to_string());
+    let mut v = TableValidator::new(table, CurrentTable::Function, data);
 
     let bit_string = v.string(BIT_KEY).require()?;
     v.push_context_identifier(format!("Function with bit range {}", &bit_string));
@@ -261,13 +259,11 @@ fn validate_bit_range(bit_string: &str, v: &mut TableValidator<'_,'_>) -> Result
 
 
 pub fn validate_enum_table(
-    register_name: &str,
     table: &TomlTable,
-    errors: &mut Vec<ValidationError>,
+    data: &mut ParserContextAndErrors,
     enums: &mut Vec<RegisterEnum>,
 ) -> Result<(),()> {
-    let mut v = TableValidator::new(table, CurrentTable::Enum, errors);
-    v.push_context_identifier(register_name.to_string());
+    let mut v = TableValidator::new(table, CurrentTable::Enum, data);
 
     let name = v.string(NAME_KEY).require()?;
     v.push_context_identifier(name.to_string());
@@ -282,7 +278,7 @@ pub fn validate_enum_table(
     for array in v.array(VALUES_KEY).require()? {
         match array {
             Value::Table(t) => {
-                let _ = validate_enum_value_table(register_name, &name, t, v.errors_mut(), &mut values);
+                let _ = validate_enum_value_table(t, v.data_mut(), &mut values);
             },
             value => return v.table_validation_error(format!("Expected array of tables, value: {:#?}", value)),
         }
@@ -301,15 +297,11 @@ pub fn validate_enum_table(
 }
 
 pub fn validate_enum_value_table(
-    register_name: &str,
-    enum_name: &str,
     table: &TomlTable,
-    errors: &mut Vec<ValidationError>,
+    data: &mut ParserContextAndErrors,
     enum_values: &mut Vec<RegisterEnumValue>,
 ) -> Result<(),()> {
-    let mut v = TableValidator::new(table, CurrentTable::EnumValue, errors);
-    v.push_context_identifier(register_name.to_string());
-    v.push_context_identifier(enum_name.to_string());
+    let mut v = TableValidator::new(table, CurrentTable::EnumValue, data);
 
     let name = v.string(NAME_KEY).require()?;
     v.push_context_identifier(name.to_string());
