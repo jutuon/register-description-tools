@@ -34,10 +34,15 @@ pub enum CurrentTable {
 
 #[derive(Debug)]
 pub enum ValidationError {
-    MissingKey(CurrentTable, &'static str),
-    UnknownKey(CurrentTable, String),
-    ValueValidationError { table: CurrentTable, key: &'static str, error: String },
-    TableValidationError { table: CurrentTable, error: String },
+    MissingKey { table: CurrentTable, context: String, key:  &'static str },
+    UnknownKey { table: CurrentTable, context: String, key: String },
+    /// Type or contents of the value was unexpected.
+    ValueValidationError { table: CurrentTable, context: String, key: &'static str, error: String },
+    /// Table value is invalid because of other table value.
+    ///
+    /// For example defining register function to bit 15 when register size is 8 bit
+    /// produces this error.
+    TableValidationError { table: CurrentTable, context: String, error: String },
 }
 
 #[derive(Debug)]
@@ -59,7 +64,7 @@ const POSSIBLE_ROOT_KEYS: &[&str] = &[REGISTER_DESCRIPTION_KEY, REGISTER_KEY];
 
 pub fn check_root_table(root: TomlTable) -> Result<ParsedFile, Vec<ValidationError>> {
     let mut errors: Vec<ValidationError> = vec![];
-    let mut ec = ErrorContext::new(CurrentTable::Root, REGISTER_DESCRIPTION_KEY, &mut errors);
+    let mut ec = ErrorContext::new(CurrentTable::Root, &mut errors);
 
     check_unknown_keys(&root, POSSIBLE_ROOT_KEYS, &mut ec);
 
@@ -94,13 +99,13 @@ pub fn check_root_table(root: TomlTable) -> Result<ParsedFile, Vec<ValidationErr
                         groups.push((key.to_string(), registers));
                     },
                     invalid_type => {
-                        v.value_validation_error(format!("Error while validating register group '{}': expected an array, value: '{:#?}'", key, invalid_type));
+                        v.value_validation_error(format!("Error while validating register group {}: expected an array, value: {:#?}", key, invalid_type));
                     }
                 }
             }
         }
         Ok(Some(invalid_type)) => {
-            v.value_validation_error(format!("Expected a table or an array, value: '{:#?}'", invalid_type));
+            v.value_validation_error(format!("Expected a table or an array, value: {:#?}", invalid_type));
         }
         Err(()) | Ok(None) => (),
     }
@@ -122,7 +127,7 @@ pub fn handle_register_array(array: &TomlArray, v: &mut TableValidator, parsed_f
                 let _ = register::validate_register_table(register_table, &parsed_file.description, v.errors_mut(), &mut registers);
             },
             invalid_type => {
-                v.value_validation_error(format!("Expected an array of tables, value: '{:#?}'", invalid_type));
+                v.value_validation_error(format!("Expected an array of tables, value: {:#?}", invalid_type));
             }
         }
     }
@@ -142,48 +147,71 @@ pub fn check_unknown_keys<T: AsRef<str>, U: Iterator<Item=T> + Clone, V: IntoIte
 
 pub struct ErrorContext<'a> {
     ct: CurrentTable,
+    context: Vec<String>,
     current_key: &'static str,
     errors: &'a mut Vec<ValidationError>,
 }
 
 impl <'a> ErrorContext<'a> {
-    pub fn new(ct: CurrentTable, current_key: &'static str, errors: &'a mut Vec<ValidationError>) -> Self {
+    pub fn new(ct: CurrentTable, errors: &'a mut Vec<ValidationError>) -> Self {
         Self {
             ct,
-            current_key,
+            context: vec![],
+            current_key: "current key is uninitialized",
             errors,
         }
     }
 
-    pub fn change_current_key(&mut self, new: &'static str) {
+    fn push_context_identifier(&mut self, text: String) {
+        self.context.push(text);
+    }
+
+    fn pop_context_identifier(&mut self) {
+        self.context.pop();
+    }
+
+    fn change_current_key(&mut self, new: &'static str) {
         self.current_key = new;
     }
 
     /// Add error with current table information.
-    pub fn unknown_key(&mut self, unknown_key: String) {
-        self.errors.push(ValidationError::UnknownKey(self.ct, unknown_key));
+    fn unknown_key(&mut self, unknown_key: String) {
+        self.errors.push(ValidationError::UnknownKey {
+            table: self.ct,
+            context: format!("{:?}", self.context),
+            key: unknown_key,
+        });
     }
 
     /// Add error with current table and current key information.
-    pub fn missing_key(&mut self) {
-        self.errors.push(ValidationError::MissingKey(self.ct, self.current_key));
+    fn missing_key(&mut self) {
+        self.errors.push(ValidationError::MissingKey {
+            table: self.ct,
+            context: format!("{:?}", self.context),
+            key: self.current_key
+        });
     }
 
     /// Add error with current table and current key information.
-    pub fn value_validation_error(&mut self, error: String) {
+    fn value_validation_error(&mut self, error: String) {
         self.errors.push(ValidationError::ValueValidationError {
             table: self.ct,
+            context: format!("{:?}", self.context),
             key: self.current_key,
             error,
         });
     }
 
     /// Add error with current table information.
-    pub fn table_validation_error(&mut self, error: String) {
-        self.errors.push(ValidationError::TableValidationError{ table: self.ct, error });
+    fn table_validation_error(&mut self, error: String) {
+        self.errors.push(ValidationError::TableValidationError{
+            table: self.ct,
+            context: format!("{:?}", self.context),
+            error
+        });
     }
 
-    pub fn errors_mut(&mut self) -> &mut Vec<ValidationError> {
+    fn errors_mut(&mut self) -> &mut Vec<ValidationError> {
         &mut self.errors
     }
 }
@@ -213,6 +241,15 @@ impl <'a, 'b> TableValidator<'a, 'b> {
             table,
             ec,
         }
+    }
+
+
+    pub fn push_context_identifier(&mut self, text: String) {
+        self.ec.push_context_identifier(text);
+    }
+
+    pub fn pop_context_identifier(&mut self) {
+        self.ec.pop_context_identifier();
     }
 
     pub fn error_context_mut(&mut self) -> &mut ErrorContext<'b> {
@@ -324,9 +361,9 @@ impl <'a, 'b> TableValidator<'a, 'b> {
     pub fn u16<'c>(&'c mut self, key: &'static str) -> ValidatorResult<'c, 'a, 'b, u16> {
         self.integer(key).map(|number| {
             if number < 0 {
-                Err(format!("Value for key '{}' is negative, value: {}", key, number))
+                Err(format!("Value for key {} is negative, value: {}", key, number))
             } else if number > u16::max_value() as i64 {
-                Err(format!("Value for key '{}' is larger than u16::max_value(), value: {}", key, number))
+                Err(format!("Value for key {} is larger than u16::max_value(), value: {}", key, number))
             } else {
                 Ok(number as u16)
             }

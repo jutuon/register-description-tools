@@ -16,13 +16,15 @@ const EXTENSION_KEY: &str = "extension";
 const POSSIBLE_KEYS: &[&str] = &[VERSION_KEY, NAME_KEY, DESCRIPTION_KEY, DEFAULT_REGISTER_SIZE_KEY, EXTENSION_KEY];
 
 pub fn check_register_description(table: &TomlTable, errors: &mut Vec<ValidationError>) -> Result<RegisterDescription, ()> {
-    let mut ec = ErrorContext::new(CurrentTable::RegisterDescription, VERSION_KEY, errors);
+    let mut ec = ErrorContext::new(CurrentTable::RegisterDescription, errors);
     super::check_unknown_keys(table, POSSIBLE_KEYS, &mut ec);
 
     let mut v = TableValidator::new(table, &mut ec);
 
-    let version: SpecVersion = v.try_from_type(VERSION_KEY).require()?;
     let name = v.string(NAME_KEY).require()?;
+    v.push_context_identifier(name.clone());
+    let version: SpecVersion = v.try_from_type(VERSION_KEY).require()?;
+
 
     let description = v.string(DESCRIPTION_KEY).optional()?;
     let extension: Option<Extension> = v.try_from_type(EXTENSION_KEY).optional()?;
@@ -63,7 +65,7 @@ impl TryFrom<&str> for SpecVersion {
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
             VERSION_ZERO_ONE => Ok(SpecVersion::VersionZeroOne),
-            unknown_version => Err(format!("Unknown register description specification version '{}'", unknown_version))
+            unknown_version => Err(format!("Unknown register description specification version {}", unknown_version))
         }
     }
 }
@@ -89,7 +91,7 @@ impl TryFrom<&str> for Extension {
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
             EXTENSION_VGA => Ok(Extension::Vga),
-            unknown => Err(format!("Unknown extension '{}'", unknown))
+            unknown => Err(format!("Unknown extension {}", unknown))
         }
     }
 }
