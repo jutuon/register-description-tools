@@ -530,7 +530,7 @@ pub fn validate_enum_value_table(
 
     v.check_unknown_keys(POSSIBLE_KEYS_ENUM_VALUE);
 
-    let value = v.integer(VALUE_KEY).require()? as u64;
+    let value: u64 = v.try_from_integer(VALUE_KEY).require()?;
     let description = v.string(DESCRIPTION_KEY).optional()?;
 
     Ok(RegisterEnumValue {

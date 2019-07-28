@@ -412,6 +412,12 @@ impl <'a, 'b> TableValidator<'a, 'b> {
         })
     }
 
+    pub fn try_from_integer<'c, T: TryFrom<i64, Error=U>, U: ToString>(&'c mut self, key: &'static str) -> ValidatorResult<'c, 'a, 'b, T> {
+        self.integer(key).map(|text| {
+            T::try_from(text)
+        })
+    }
+
     pub fn string<'c>(&'c mut self, key: &'static str) -> ValidatorResult<'c, 'a, 'b, String> {
         self.text(key).map::<_,_,String>(|text| {
             Ok(text.to_string())
