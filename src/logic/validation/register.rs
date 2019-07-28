@@ -1,6 +1,8 @@
 
 use std::{
     convert::TryFrom,
+    collections::HashMap,
+    num::NonZeroU32,
     fmt,
 };
 
@@ -64,9 +66,10 @@ pub struct RegisterEnum {
     range: BitRange,
     values: Vec<RegisterEnumValue>,
     description: Option<String>,
+    all_possible_values_are_defined: bool,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq, Hash, Copy, Clone)]
 /// `self.msb >= self.lsb`
 pub struct BitRange {
     msb: u16,
@@ -84,6 +87,17 @@ impl BitRange {
         } else {
             panic!("error: msb < lsb, msb: {}, lsb: {}");
         }
+    }
+
+    pub fn bit_count(&self) -> NonZeroU32 {
+        let msb = self.msb as u32;
+        let lsb = self.lsb as u32;
+
+        // 0 - 0 + 1 = 1
+        // 1 - 0 + 1 = 2
+        // 2 - 0 + 1 = 3
+        // 2 - 1 + 1 = 2
+        NonZeroU32::new(msb - lsb + 1).unwrap()
     }
 }
 
@@ -245,6 +259,86 @@ impl Register {
             },
         }
     }
+
+    /// Checks the following properties:
+    /// * Register enum bit range matches some register function
+    ///   which is not marked as reserved.
+    /// * Only one register enum can exist per register function.
+    /// * Enum values are within enum bit range bounds.
+    /// * There is no duplicate enum values.
+    ///
+    /// Also sets enum flag `all_possible_values_are_defined` if
+    /// there exist enough enum values depending on enum bit range size.
+    fn check_register_enums(&mut self, v: &mut TableValidator<'_,'_>) {
+        let mut enum_bit_ranges: HashMap<BitRange, &Name> = HashMap::new();
+
+        for e in &mut self.enums {
+            let mut some_range_matched = false;
+            let mut reserved_function_match = false;
+            for f in &self.functions {
+                if f.range == e.range {
+                    some_range_matched = true;
+
+                    if let FunctionStatus::Reserved = &f.status {
+                        reserved_function_match = true;
+                    }
+                }
+            }
+
+            if !some_range_matched {
+                let _ = v.table_validation_error::<()>(format!("no matching function bit range found for enum '{}'", e.name));
+                continue;
+            }
+
+            if reserved_function_match {
+                let _ = v.table_validation_error::<()>(format!("enum '{}' bit range is reserved", e.name));
+                continue;
+            }
+
+            if let Some(another_enum_name) = enum_bit_ranges.insert(e.range, &e.name) {
+                let _ = v.table_validation_error::<()>(format!("same bit range '{}' is defined found for enums '{}' and '{}'", e.range, e.name, another_enum_name));
+                continue;
+            }
+
+            let max_value_for_enum: u64 = {
+                let bit_count = e.range.bit_count();
+                if bit_count.get() > 64 {
+                    let _ = v.table_validation_error::<()>(format!("enum '{}' bit range '{}' is larger than 64 bits", e.name, e.range));
+                    continue;
+                }
+
+                if bit_count.get() == 64 {
+                    u64::max_value()
+                } else {
+                    2u64.pow(bit_count.get()) - 1
+                }
+            };
+
+            let mut enum_values: HashMap<u64, &Name> = HashMap::new();
+
+            for enum_value in &e.values {
+                if enum_value.value > max_value_for_enum {
+                    let _ = v.table_validation_error::<()>(format!("enum value '{}' with value '{}' for enum '{}' is larger than enum max value '{}'", enum_value.name, enum_value.value, e.name, max_value_for_enum));
+                }
+
+                if let Some(another_name) = enum_values.insert(enum_value.value, &enum_value.name) {
+                    let _ = v.table_validation_error::<()>(format!("enum values '{}' and '{}' have the same value '{}'", enum_value.name, another_name, enum_value.value));
+                }
+            }
+
+            match u128::try_from(e.values.len()) {
+                Ok(value_count) => {
+                    let required_count = max_value_for_enum as u128 + 1;
+                    if required_count == value_count {
+                        e.all_possible_values_are_defined = true;
+                    }
+                }
+                Err(error) => {
+                    let _ = v.table_validation_error::<()>(format!("validator error: conversion from usize to u128 failed, error: {}", error));
+                }
+            }
+        }
+    }
 }
 
 
@@ -349,7 +443,7 @@ pub fn validate_register_table(
 
     let index = v.u16(INDEX_KEY).optional()?;
 
-    let register = Register {
+    let mut register = Register {
         name,
         address,
         access_mode,
@@ -362,6 +456,7 @@ pub fn validate_register_table(
     };
 
     register.check_functions(&mut v);
+    register.check_register_enums(&mut v);
 
     Ok(register)
 }
@@ -419,7 +514,8 @@ pub fn validate_enum_table(
         name,
         range: bit_range,
         description,
-        values
+        values,
+        all_possible_values_are_defined: false,
     })
 }
 

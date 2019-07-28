@@ -1,9 +1,6 @@
 pub mod register_description;
 pub mod register;
 
-// TODO: Check that the same register enum bit range is defined also in the register
-//       function list.
-
 use std::{
     convert::TryFrom,
     iter::Iterator,
