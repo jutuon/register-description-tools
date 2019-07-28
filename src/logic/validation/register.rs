@@ -41,6 +41,20 @@ pub struct BitRange {
     lsb: u16,
 }
 
+impl BitRange {
+    /// Panics if msb or lsb is not valid.
+    pub fn new(msb: u16, lsb: u16) -> Self {
+        if msb >= lsb {
+            Self {
+                msb,
+                lsb
+            }
+        } else {
+            panic!("error: msb < lsb, msb: {}, lsb: {}");
+        }
+    }
+}
+
 impl fmt::Display for BitRange {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.msb == self.lsb {
@@ -66,19 +80,13 @@ impl TryFrom<&str> for BitRange {
                 } else if msb == lsb {
                     Err(format!("unnecessary range syntax, change '{}' to '{}'", &value, msb))
                 } else {
-                    Ok(BitRange {
-                        msb,
-                        lsb
-                    })
+                    Ok(BitRange::new(msb, lsb))
                 }
             }
             (Some(single_bit), None, None) => {
                 let bit: u16 = single_bit.parse::<u16>().map_err(|e| e.to_string())?;
 
-                Ok(BitRange {
-                    msb: bit,
-                    lsb: bit,
-                })
+                Ok(BitRange::new(bit, bit))
             }
             (_, _, Some(_)) => Err(format!("invalid bit range '{}'", &value)),
             (None, _, None) => unreachable!(), // Iterator method 'next' should make this impossible to happen.
@@ -116,6 +124,95 @@ pub struct Register {
     functions: Vec<RegisterFunction>,
     enums: Vec<RegisterEnum>,
     index: Option<u16>,
+}
+
+impl Register {
+    /// Checks the following properties:
+    /// * Function ranges are within register bounds.
+    /// * Function ranges do not overlap.
+    /// * Function ranges fill the register completely.
+    fn check_functions(&self, v: &mut TableValidator<'_,'_>) {
+        let mut bits: Vec<Option<&BitRange>> = vec![None; self.size_in_bits as usize];
+        for f in self.functions.iter() {
+            let mut overlap_detected = false;
+
+            for i in f.range.lsb..=f.range.msb {
+                match bits.get_mut(i as usize) {
+                    Some(bit @ None) => *bit = Some(&f.range),
+                    Some(Some(error_another_function_overlaps)) => {
+                        if !overlap_detected {
+                            let _ = v.table_validation_error::<()>(format!("function bit range '{}' overlaps with another function '{}'", f.range, error_another_function_overlaps));
+                        }
+                        overlap_detected = true;
+
+                        // Breaking the loop here can break the undefined register bit check.
+                    }
+                    None => {
+                        let _ = v.table_validation_error::<()>(format!("function bit range '{}' is not inside register bounds, register size: {}", f.range, self.size_in_bits));
+                        break;
+                    },
+                }
+            }
+        }
+
+        let mut ranges_without_function: Vec<BitRange> = vec![];
+        let mut lsb: Option<u16> = None;
+        for (i, b) in bits.iter().enumerate() {
+            match (lsb, b) {
+                // 0111_1001
+                //         ^ i
+                (None, Some(_)) => (),
+
+                // 0111_1001
+                //        ^  i
+                (None, None) => lsb = Some(i as u16),
+
+                // 0111_1001
+                //       ^   i
+                (Some(_), None) => (),
+
+                // 0111_1001
+                //      ^    i
+                (Some(lsb_value), Some(_)) => {
+                    ranges_without_function.push(BitRange::new(
+                        (i-1) as u16,
+                        lsb_value,
+                    ));
+                    lsb = None;
+                }
+            }
+        }
+
+        //  0111_1001
+        // ^          i
+        if let Some(lsb) = lsb {
+            ranges_without_function.push(BitRange::new((bits.len() - 1) as u16, lsb));
+        }
+
+        match ranges_without_function.len() {
+            0 => (),
+            1 => {
+                let range = &ranges_without_function[0];
+                if range.msb == range.lsb {
+                    let _ = v.table_validation_error::<()>(format!("register bit '{}' is undefined", range));
+                } else {
+                    let _ = v.table_validation_error::<()>(format!("some register bits are undefined, '{}'", range));
+                }
+            }
+            _ => {
+                let mut ranges_string = String::new();
+                for range in &ranges_without_function {
+                    use std::fmt::Write;
+                    write!(&mut ranges_string, "'{}', ", range).unwrap();
+                }
+
+                ranges_string.pop();
+                ranges_string.pop();
+
+                let _ = v.table_validation_error::<()>(format!("some register bits are undefined, {}", ranges_string));
+            },
+        }
+    }
 }
 
 
@@ -220,7 +317,7 @@ pub fn validate_register_table(
 
     let index = v.u16(INDEX_KEY).optional()?;
 
-    Ok(Register {
+    let register = Register {
         name,
         address,
         access_mode,
@@ -230,7 +327,11 @@ pub fn validate_register_table(
         functions,
         enums,
         index,
-    })
+    };
+
+    register.check_functions(&mut v);
+
+    Ok(register)
 }
 
 

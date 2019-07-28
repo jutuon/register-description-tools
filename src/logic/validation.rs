@@ -1,8 +1,6 @@
 pub mod register_description;
 pub mod register;
 
-// TODO: Check that register function bit ranges don't overlap
-//       and are inside register bounds.
 // TODO: Check that the same register enum bit range is defined also in the register
 //       function list.
 
