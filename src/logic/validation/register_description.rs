@@ -11,6 +11,7 @@ use super::{
     TomlTable,
     ParserContextAndErrors,
     Name,
+    register::RegisterSize,
 };
 
 const VERSION_KEY: &str = "version";
@@ -32,7 +33,7 @@ pub fn check_register_description(table: &TomlTable, data: &mut ParserContextAnd
 
     let description = v.string(DESCRIPTION_KEY).optional()?;
     let extension: Option<Extension> = v.try_from_type(EXTENSION_KEY).optional()?;
-    let default_register_size_in_bits = v.u16(DEFAULT_REGISTER_SIZE_KEY).optional()?;
+    let default_register_size_in_bits: Option<RegisterSize> = v.try_from_type(DEFAULT_REGISTER_SIZE_KEY).optional()?;
 
     let rd = RegisterDescription {
         version,
@@ -52,7 +53,7 @@ pub struct RegisterDescription {
     pub description: Option<String>,
     pub version: SpecVersion,
     pub extension: Option<Extension>,
-    pub default_register_size_in_bits: Option<u16>,
+    pub default_register_size_in_bits: Option<RegisterSize>,
 }
 
 #[derive(Debug, Copy, Clone)]

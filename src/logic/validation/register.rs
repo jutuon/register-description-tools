@@ -19,6 +19,38 @@ use super::{
 };
 
 
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub enum RegisterSize {
+    Size8 = 8,
+    Size16 = 16,
+    Size32 = 32,
+    Size64 = 64,
+}
+
+impl fmt::Display for RegisterSize {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", *self as usize)
+    }
+}
+
+impl TryFrom<&str> for RegisterSize {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let s = match value {
+            "8"  => RegisterSize::Size8,
+            "16" => RegisterSize::Size16,
+            "32" => RegisterSize::Size32,
+            "64" => RegisterSize::Size64,
+            size => {
+                return Err(format!("unsupported register size {}, supported register sizes are 8, 16, 32 and 64", size))
+            }
+        };
+
+        Ok(s)
+    }
+}
+
 #[derive(Debug)]
 pub struct RegisterEnumValue {
     value: u64,
@@ -118,7 +150,7 @@ pub struct Register {
     name: Name,
     address: u64,
     access_mode: AccessMode,
-    size_in_bits: u16,
+    size_in_bits: RegisterSize,
     alternative_address: Option<u64>,
     description: Option<String>,
     functions: Vec<RegisterFunction>,
@@ -293,7 +325,7 @@ pub fn validate_register_table(
         }
     };
 
-    let size_in_bits = v.u16(SIZE_IN_BITS_KEY).optional()?.or(rd.default_register_size_in_bits);
+    let size_in_bits: Option<RegisterSize> = v.try_from_type(SIZE_IN_BITS_KEY).optional()?.or(rd.default_register_size_in_bits);
     let size_in_bits = match size_in_bits {
         Some(size) => size,
         None => return v.table_validation_error(format!("register size is undefined")),
