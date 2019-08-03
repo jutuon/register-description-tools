@@ -115,6 +115,7 @@ pub fn check_root_table(root: TomlTable) -> Result<ParsedFile, Vec<ValidationErr
                     }
                 }
             }
+            parsed_file.registers = Some(Registers::Groups(groups));
         }
         Ok(Some(invalid_type)) => {
             v.value_validation_error(format!("expected a table or an array, found: {:?}", invalid_type));
