@@ -55,8 +55,8 @@ impl fmt::Display for ValidationError {
 
 #[derive(Debug)]
 pub struct ParsedFile {
-    description: RegisterDescription,
-    registers: Option<Registers>,
+    pub description: RegisterDescription,
+    pub registers: Option<Registers>,
 }
 
 #[derive(Debug)]

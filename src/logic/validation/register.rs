@@ -53,6 +53,20 @@ impl TryFrom<&str> for RegisterSize {
     }
 }
 
+impl TryFrom<usize> for RegisterSize {
+    type Error = String;
+    /// Value is enum variant index or register size.
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        Ok(match value {
+            0 | 8 => RegisterSize::Size8,
+            1 | 16 => RegisterSize::Size16,
+            2 | 32 => RegisterSize::Size32,
+            3 | 64 => RegisterSize::Size64,
+            _ => return Err(format!("can't convert value {} to RegisterSize enum", value)),
+        })
+    }
+}
+
 #[derive(Debug)]
 pub struct RegisterEnumValue {
     value: u64,
@@ -152,11 +166,23 @@ pub struct RegisterFunction {
     status: FunctionStatus,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum AccessMode {
-    Read,
-    Write,
-    ReadWrite,
+    Read = 0,
+    Write = 1,
+    ReadWrite = 2,
+}
+
+impl TryFrom<usize> for AccessMode {
+    type Error = String;
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        Ok(match value {
+            0 => AccessMode::Read,
+            1 => AccessMode::Write,
+            2 => AccessMode::ReadWrite,
+            _ => return Err(format!("can't convert value {} to AccessMode enum", value)),
+        })
+    }
 }
 
 #[derive(Debug)]
