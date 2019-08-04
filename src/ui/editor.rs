@@ -35,7 +35,7 @@ pub fn open_new_register_dialog(s: &mut Cursive) {
             }
 
             let (functions, add_function_button) = create_select_view(
-                "function",
+                "bit field",
                 &mut data.objects,
                 |x| (&mut x.tmp.tmp_function, &mut x.register.functions),
                 |s, i, id, getter| open_object_editor_dialog(s, i, id, getter, |_,_,_|()),
@@ -63,7 +63,7 @@ pub fn open_new_register_dialog(s: &mut Cursive) {
 
             (
                 fields,
-                select_views.child(TextView::new("functions"))
+                select_views.child(TextView::new("bit fields"))
                     .child(functions.scrollable())
                     .child(TextView::new("enums"))
                     .child(enums.scrollable()),
@@ -112,7 +112,7 @@ fn save_register(mut s: &mut Cursive, next_register: bool) -> Result<(), ()> {
         modify_data(&mut s, |editor_data| {
             let r = &mut editor_data.objects.register;
             r.name.reset();
-            r.index.reset();
+            r.location.reset();
             r.description.reset();
             r.access.reset();
             r.size.reset();

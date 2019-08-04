@@ -9,6 +9,7 @@ use crate::logic::validation::{
     register::{
         AccessMode,
         RegisterSize,
+        RegisterLocation,
     },
 };
 
@@ -54,10 +55,10 @@ impl ObjectHandler {
 
 pub struct UiRegister {
     pub name: StringField,
-    pub address: StringField,
-    pub index: StringField,
+    pub location: StringField,
     pub description: StringField,
     pub group: StringField,
+    pub location_mode: EnumField<RegisterLocation>,
     pub access: EnumField<AccessMode>,
     pub size: EnumField<RegisterSize>,
     pub functions: Vec<UiFunction>,
@@ -69,10 +70,10 @@ impl UiRegister {
         let id = "register";
         UiRegister {
             name: StringField::new("name", "", id, Some(error_if_empty)),
-            address: StringField::new("address", "", id, Some(error_if_empty)),
-            index: StringField::new("index", "", id, None),
+            location: StringField::new("location", "", id, Some(error_if_empty)),
             description: StringField::new("description", "", id, None),
             group: StringField::new("group", "", id, Some(error_if_empty)),
+            location_mode: EnumField::new("location", RegisterLocation::Index(0), &[0, 1, 2]),
             access: EnumField::new("access", AccessMode::ReadWrite, &[2, 0, 1]),
             size: EnumField::new("size", RegisterSize::Size8, &[0, 1, 2, 3]),
             functions: vec![],
@@ -85,8 +86,7 @@ impl UiObject for UiRegister {
     fn fields(&mut self, parsed_file: &ParsedFile) -> Vec<&mut dyn TuiField> {
         let mut fields: Vec<&mut dyn TuiField> = vec![
             &mut self.name,
-            &mut self.address,
-            &mut self.index,
+            &mut self.location,
             &mut self.description,
         ];
 
@@ -95,6 +95,7 @@ impl UiObject for UiRegister {
             _ => (),
         }
 
+        fields.push(&mut self.location_mode);
         fields.push(&mut self.access);
         fields.push(&mut self.size);
         fields

@@ -11,16 +11,27 @@ use super::{
     TomlTable,
     ParserContextAndErrors,
     Name,
-    register::RegisterSize,
+    register::{
+        RegisterSize,
+        AccessMode,
+    },
 };
 
 const VERSION_KEY: &str = "version";
 const NAME_KEY: &str = "name";
 const DESCRIPTION_KEY: &str = "description";
-const DEFAULT_REGISTER_SIZE_KEY: &str = "default_register_size_in_bits";
+const DEFAULT_REGISTER_SIZE_KEY: &str = "default_register_size";
+const DEFAULT_REGISTER_ACCESS_KEY: &str = "default_register_access";
 const EXTENSION_KEY: &str = "extension";
 
-const POSSIBLE_KEYS: &[&str] = &[VERSION_KEY, NAME_KEY, DESCRIPTION_KEY, DEFAULT_REGISTER_SIZE_KEY, EXTENSION_KEY];
+const POSSIBLE_KEYS: &[&str] = &[
+    VERSION_KEY,
+    NAME_KEY,
+    DESCRIPTION_KEY,
+    DEFAULT_REGISTER_SIZE_KEY,
+    EXTENSION_KEY,
+    DEFAULT_REGISTER_ACCESS_KEY,
+];
 
 pub fn check_register_description(table: &TomlTable, data: &mut ParserContextAndErrors) -> Result<RegisterDescription, ()> {
     let mut v = TableValidator::new(table, CurrentTable::RegisterDescription, data);
@@ -34,6 +45,7 @@ pub fn check_register_description(table: &TomlTable, data: &mut ParserContextAnd
     let description = v.string(DESCRIPTION_KEY).optional()?;
     let extension: Option<Extension> = v.try_from_type(EXTENSION_KEY).optional()?;
     let default_register_size_in_bits: Option<RegisterSize> = v.try_from_type(DEFAULT_REGISTER_SIZE_KEY).optional()?;
+    let default_register_access: Option<AccessMode> = v.try_from_type(DEFAULT_REGISTER_ACCESS_KEY).optional()?;
 
     let rd = RegisterDescription {
         version,
@@ -41,6 +53,7 @@ pub fn check_register_description(table: &TomlTable, data: &mut ParserContextAnd
         description,
         extension,
         default_register_size_in_bits,
+        default_register_access,
     };
 
     Ok(rd)
@@ -54,6 +67,7 @@ pub struct RegisterDescription {
     pub version: SpecVersion,
     pub extension: Option<Extension>,
     pub default_register_size_in_bits: Option<RegisterSize>,
+    pub default_register_access: Option<AccessMode>,
 }
 
 #[derive(Debug, Copy, Clone)]

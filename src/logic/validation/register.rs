@@ -6,8 +6,6 @@ use std::{
     fmt,
 };
 
-use toml::Value;
-
 use super::{
     CurrentTable,
     ParserContextAndErrors,
@@ -166,7 +164,7 @@ pub struct RegisterFunction {
     status: FunctionStatus,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum AccessMode {
     Read = 0,
     Write = 1,
@@ -185,13 +183,36 @@ impl TryFrom<usize> for AccessMode {
     }
 }
 
+impl TryFrom<&str> for AccessMode {
+    type Error = String;
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Ok(match value {
+            "r" => AccessMode::Read,
+            "w" => AccessMode::Write,
+            "rw" => AccessMode::ReadWrite,
+            _ => return Err(format!("unsupported register access mode '{}', supported modes are 'r', 'w' or 'rw'", value)),
+        })
+    }
+}
+
+impl fmt::Display for AccessMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let value = match self {
+            AccessMode::Read => "r",
+            AccessMode::Write => "w",
+            AccessMode::ReadWrite => "rw",
+        };
+
+        write!(f, "{}", value)
+    }
+}
+
 #[derive(Debug)]
 pub struct Register {
     name: Name,
-    address: u64,
     access_mode: AccessMode,
     size_in_bits: RegisterSize,
-    alternative_address: Option<u64>,
+    location: RegisterLocation,
     description: Option<String>,
     functions: Vec<RegisterFunction>,
     enums: Vec<RegisterEnum>,
@@ -367,25 +388,71 @@ impl Register {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RegisterLocation {
+    Index(u64),
+    Relative(u64),
+    Absolute(u64),
+}
+
+impl TryFrom<usize> for RegisterLocation {
+    type Error = String;
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        Ok(match value {
+            0 => RegisterLocation::Index(0),
+            1 => RegisterLocation::Relative(0),
+            2 => RegisterLocation::Absolute(0),
+            _ => return Err(format!("can't convert value {} to RegisterLocation enum", value)),
+        })
+    }
+}
+
 
 const NAME_KEY: &str = "name";
 const DESCRIPTION_KEY: &str = "description";
 const BIT_KEY: &str = "bit";
-const READ_ADDRESS_KEY: &str = "read_address";
-const WRITE_ADDRESS_KEY: &str = "write_address";
-const READ_WRITE_ADDRESS_KEY: &str = "read_write_address";
-const FUNCTIONS_KEY: &str = "functions";
+const ACCESS_KEY: &str = "access";
+const ABSOLUTE_ADDRESS_KEY: &str = "absolute_address";
+const RELATIVE_ADDRESS_KEY: &str = "relative_address";
+const FUNCTIONS_KEY: &str = "bit_fields";
 const RESERVED_KEY: &str = "reserved";
 const VALUES_KEY: &str = "values";
 const VALUE_KEY: &str = "value";
-const ENUMS_KEY: &str = "enums";
+const ENUMS_KEY: &str = "enum";
 const INDEX_KEY: &str = "index";
-const SIZE_IN_BITS_KEY: &str = "size_in_bits";
+const SIZE_IN_BITS_KEY: &str = "size";
 
-const POSSIBLE_KEYS_REGISTER: &[&str] = &[NAME_KEY, DESCRIPTION_KEY, READ_ADDRESS_KEY, WRITE_ADDRESS_KEY, READ_WRITE_ADDRESS_KEY, FUNCTIONS_KEY, ENUMS_KEY, SIZE_IN_BITS_KEY];
-const POSSIBLE_KEYS_FUNCTION: &[&str] = &[BIT_KEY, NAME_KEY, DESCRIPTION_KEY, RESERVED_KEY];
-const POSSIBLE_KEYS_ENUM: &[&str] = &[NAME_KEY, BIT_KEY, DESCRIPTION_KEY, VALUES_KEY];
-const POSSIBLE_KEYS_ENUM_VALUE: &[&str] = &[VALUE_KEY, NAME_KEY, DESCRIPTION_KEY];
+const POSSIBLE_KEYS_REGISTER: &[&str] = &[
+    NAME_KEY,
+    DESCRIPTION_KEY,
+    ACCESS_KEY,
+    ABSOLUTE_ADDRESS_KEY,
+    RELATIVE_ADDRESS_KEY,
+    FUNCTIONS_KEY,
+    ENUMS_KEY,
+    SIZE_IN_BITS_KEY,
+    INDEX_KEY,
+];
+
+const POSSIBLE_KEYS_FUNCTION: &[&str] = &[
+    BIT_KEY,
+    NAME_KEY,
+    DESCRIPTION_KEY,
+    RESERVED_KEY
+];
+
+const POSSIBLE_KEYS_ENUM: &[&str] = &[
+    NAME_KEY,
+    BIT_KEY,
+    DESCRIPTION_KEY,
+    VALUES_KEY
+];
+
+const POSSIBLE_KEYS_ENUM_VALUE: &[&str] = &[
+    VALUE_KEY,
+    NAME_KEY,
+    DESCRIPTION_KEY
+];
 
 
 pub fn validate_register_table(
@@ -405,43 +472,17 @@ pub fn validate_register_table(
 
     let description = v.string(DESCRIPTION_KEY).optional()?;
 
-    let (access_mode, address, alternative_address) = {
-        let read_address = v.value(READ_ADDRESS_KEY).optional()?;
-        let write_address = v.value(WRITE_ADDRESS_KEY).optional()?;
-        let read_write_address = v.value(READ_WRITE_ADDRESS_KEY).optional()?;
+    let location = {
+        let index: Option<u64> = v.try_from_integer(INDEX_KEY).optional()?;
+        let absolute_address: Option<u64> = v.try_from_integer(ABSOLUTE_ADDRESS_KEY).optional()?;
+        let relative_address: Option<u64> = v.try_from_integer(RELATIVE_ADDRESS_KEY).optional()?;
 
-        let (access_mode, value) = match (read_address, write_address, read_write_address) {
-            (Some(v), None, None) => (AccessMode::Read, v),
-            (None, Some(v), None) => (AccessMode::Write, v),
-            (None, None, Some(v)) => (AccessMode::ReadWrite, v),
-            (None, None, None) => return v.table_validation_error(format!("register access mode '{}', '{}', or '{}' is required", READ_ADDRESS_KEY, WRITE_ADDRESS_KEY, READ_WRITE_ADDRESS_KEY)),
-            _ => return v.table_validation_error(format!("access mode count error: only one access mode is supported")),
-        };
-
-        match (&rd.extension, value) {
-            (_, Value::Integer(integer)) => {
-                if *integer < 0 {
-                    return v.table_validation_error(format!("address can't be negative, found: '{}'", integer));
-                } else {
-                    (access_mode, *integer as u64, None)
-                }
-            }
-            (Some(Extension::Vga), Value::String(number)) => {
-                if number.matches("?").count() == 1 && number.starts_with("0x")  {
-                    let number_with_hex_b = number.replace("?", "B");
-                    let number_with_hex_d = number.replace("?", "D");
-
-                    let address1: u64 = v.hex_to_u64(&number_with_hex_b)?;
-                    let address2: u64 = v.hex_to_u64(&number_with_hex_d)?;
-
-                    (access_mode, address1, Some(address2))
-                } else {
-                    return v.table_validation_error(format!("invalid address '{}', if address is string it must contain one question mark and start with '0x'", &number));
-                }
-            }
-            (_, value) => {
-                return v.table_validation_error(format!("unexpected type {:?}", value));
-            }
+        match (index, absolute_address, relative_address) {
+            (Some(v), None, None) => RegisterLocation::Index(v),
+            (None, Some(v), None) => RegisterLocation::Absolute(v),
+            (None, None, Some(v)) => RegisterLocation::Relative(v),
+            (None, None, None) => return v.table_validation_error(format!("register location field '{}', '{}', or '{}' is required", ABSOLUTE_ADDRESS_KEY, RELATIVE_ADDRESS_KEY, INDEX_KEY)),
+            _ => return v.table_validation_error(format!("register location field count error: only one location field is supported")),
         }
     };
 
@@ -449,6 +490,12 @@ pub fn validate_register_table(
     let size_in_bits = match size_in_bits {
         Some(size) => size,
         None => return v.table_validation_error(format!("register size is undefined")),
+    };
+
+    let access_mode: Option<AccessMode> = v.try_from_type(ACCESS_KEY).optional()?.or(rd.default_register_access);
+    let access_mode = match access_mode {
+        Some(a) => a,
+        None => return v.table_validation_error(format!("register access mode is undefined")),
     };
 
     let functions = v.array_of_tables(FUNCTIONS_KEY).require()?
@@ -471,10 +518,9 @@ pub fn validate_register_table(
 
     let mut register = Register {
         name,
-        address,
+        location,
         access_mode,
         size_in_bits,
-        alternative_address,
         description,
         functions,
         enums,

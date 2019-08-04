@@ -15,12 +15,10 @@ use crate::logic::{
         self,
         ParsedFile,
         Registers,
-        register_description::{
-            Extension,
-        },
         register::{
             AccessMode,
             RegisterSize,
+            RegisterLocation,
         },
     },
 };
@@ -44,17 +42,19 @@ pub fn convert_to_toml(register: &UiRegister, register_file: &ParsedFile) -> Str
     writeln!(output, "\n[[register{}]]", group).unwrap();
     string_field(&mut output, "name", &register.name);
     string_field(&mut output, "description", &register.description);
-    number_or_boolean_field(&mut output, "index", &register.index.value);
 
-    let access_mode = match register.access.value {
-        AccessMode::Read => "read_address",
-        AccessMode::Write => "write_address",
-        AccessMode::ReadWrite => "read_write_address",
-    };
+    match &register.location_mode.value {
+        RegisterLocation::Index(_) => number_or_boolean_field(&mut output, "index", &register.location.value),
+        RegisterLocation::Relative(_) => number_or_boolean_field(&mut output, "relative_address", &register.location.value),
+        RegisterLocation::Absolute(_) => number_or_boolean_field(&mut output, "absolute_address", &register.location.value),
+    }
 
-    match (register_file.description.extension, register.address.value.find("?")) {
-        (Some(Extension::Vga), Some(_)) => string_field(&mut output, access_mode, &register.address),
-        _ => number_or_boolean_field(&mut output, access_mode, &register.address.value),
+    if let Some(default_access) = register_file.description.default_register_access {
+        if default_access != register.access.value {
+            register_access_field(&mut output, register.access.value)
+        }
+    } else {
+        register_access_field(&mut output, register.access.value)
     }
 
     if let Some(default_size) = register_file.description.default_register_size_in_bits {
@@ -65,7 +65,7 @@ pub fn convert_to_toml(register: &UiRegister, register_file: &ParsedFile) -> Str
         register_size_field(&mut output, register.size.value)
     }
 
-    writeln!(output, "functions = [").unwrap();
+    writeln!(output, "bit_fields = [").unwrap();
     for f in &register.functions {
         write!(output, "    {{ bit = \"{}\"", f.bit.value.trim()).unwrap();
         if f.reserved.value {
@@ -84,7 +84,7 @@ pub fn convert_to_toml(register: &UiRegister, register_file: &ParsedFile) -> Str
     writeln!(output, "]").unwrap();
 
     for e in &register.enums {
-        writeln!(output, "\n[[register{}.enums]]", group).unwrap();
+        writeln!(output, "\n[[register{}.enum]]", group).unwrap();
         string_field(&mut output, "name", &e.name);
         string_field(&mut output, "description", &e.description);
         string_field(&mut output, "bit", &e.bit);
@@ -159,7 +159,12 @@ fn number_or_boolean_field(file: &mut String, key: &str, value: &str) {
 }
 
 fn register_size_field(file: &mut String, value: RegisterSize) {
-    number_or_boolean_field(file, "size_in_bits", &value.to_string())
+    number_or_boolean_field(file, "size", &value.to_string())
+}
+
+fn register_access_field(file: &mut String, value: AccessMode) {
+    use std::fmt::Write;
+    writeln!(file, "{} = \"{}\"", "access", value.to_string()).unwrap();
 }
 
 fn error_message<T, U: ToString>(s: &mut Cursive, result: Result<T, U>) -> Result<T, ()> {

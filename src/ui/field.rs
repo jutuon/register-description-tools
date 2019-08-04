@@ -21,6 +21,7 @@ use cursive::{
 use crate::logic::validation::register::{
     AccessMode,
     RegisterSize,
+    RegisterLocation,
 };
 
 
@@ -29,8 +30,19 @@ pub trait Enum: TryFrom<usize, Error=String> {
     fn to_index(&self) -> usize;
 }
 
+impl Enum for RegisterLocation {
+    const VARIANT_NAMES: &'static [&'static str] = &["index", "rel", "abs"];
+    fn to_index(&self) -> usize {
+        match self {
+            RegisterLocation::Index(_) => 0,
+            RegisterLocation::Relative(_) => 1,
+            RegisterLocation::Absolute(_) => 2,
+        }
+    }
+}
+
 impl Enum for AccessMode {
-    const VARIANT_NAMES: &'static [&'static str] = &["R", "W", "RW"];
+    const VARIANT_NAMES: &'static [&'static str] = &["r", "w", "rw"];
     fn to_index(&self) -> usize {
         *self as usize
     }
@@ -48,6 +60,7 @@ impl Enum for RegisterSize {
     }
 }
 
+/// This field doesn't set Cursive view id.
 #[derive(Clone)]
 pub struct EnumField<T: Enum> {
     pub key: String,
