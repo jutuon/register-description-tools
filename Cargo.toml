@@ -11,3 +11,7 @@ cursive = "0.12"
 toml = { version = "0.5", features = ["preserve_order"] }
 regex = "1.2.0"
 lazy_static = "1.3.0"
+quote = "0.6.13"
+syn = { version = "0.15.42", features = ["full"] }
+inflections = "1.1.1"
+proc-macro2 = "0.4.30"

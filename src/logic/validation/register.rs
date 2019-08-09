@@ -65,27 +65,27 @@ impl TryFrom<usize> for RegisterSize {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RegisterEnumValue {
-    value: u64,
-    name: Name,
-    description: Option<String>,
+    pub value: u64,
+    pub name: Name,
+    pub description: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RegisterEnum {
-    name: Name,
-    range: BitRange,
-    values: Vec<RegisterEnumValue>,
-    description: Option<String>,
-    all_possible_values_are_defined: bool,
+    pub name: Name,
+    pub range: BitRange,
+    pub values: Vec<RegisterEnumValue>,
+    pub description: Option<String>,
+    pub all_possible_values_are_defined: bool,
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Copy, Clone)]
 /// `self.msb >= self.lsb`
 pub struct BitRange {
-    msb: u16,
-    lsb: u16,
+    pub msb: u16,
+    pub lsb: u16,
 }
 
 impl BitRange {
@@ -110,6 +110,22 @@ impl BitRange {
         // 2 - 0 + 1 = 3
         // 2 - 1 + 1 = 2
         NonZeroU32::new(msb - lsb + 1).unwrap()
+    }
+
+    /// Returns error if bit range is larger than 64 bits.
+    pub fn max_value(&self) -> Result<u64, String> {
+        let bit_count = self.bit_count();
+        if bit_count.get() > 64 {
+            return Err(format!("bit range '{}' is larger than 64 bits", self));
+        }
+
+        let max_value = if bit_count.get() == 64 {
+            u64::max_value()
+        } else {
+            2u64.pow(bit_count.get()) - 1
+        };
+
+        Ok(max_value)
     }
 }
 
@@ -152,16 +168,48 @@ impl TryFrom<&str> for BitRange {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum FunctionStatus {
     Reserved,
     Normal { name: Name, description: Option<String> },
 }
 
-#[derive(Debug)]
+impl FunctionStatus {
+    pub fn is_reserved(&self) -> bool {
+        if let FunctionStatus::Reserved = self {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn is_normal(&self) -> bool {
+        !self.is_reserved()
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct RegisterFunction {
-    range: BitRange,
-    status: FunctionStatus,
+    pub range: BitRange,
+    pub status: FunctionStatus,
+}
+
+impl RegisterFunction {
+    pub fn name(&self) -> Option<&str> {
+        if let FunctionStatus::Normal { name, ..} = &self.status {
+            Some(name.as_str())
+        } else {
+            None
+        }
+    }
+
+    pub fn description(&self) -> Option<&str> {
+        if let FunctionStatus::Normal { description, ..} = &self.status {
+            description.as_ref().map(|x| x.as_str())
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -209,14 +257,14 @@ impl fmt::Display for AccessMode {
 
 #[derive(Debug)]
 pub struct Register {
-    name: Name,
-    access_mode: AccessMode,
-    size_in_bits: RegisterSize,
-    location: RegisterLocation,
-    description: Option<String>,
-    functions: Vec<RegisterFunction>,
-    enums: Vec<RegisterEnum>,
-    index: Option<u16>,
+    pub name: Name,
+    pub access_mode: AccessMode,
+    pub size_in_bits: RegisterSize,
+    pub location: RegisterLocation,
+    pub description: Option<String>,
+    pub functions: Vec<RegisterFunction>,
+    pub enums: Vec<RegisterEnum>,
+    pub index: Option<u16>,
 }
 
 impl Register {
@@ -347,17 +395,11 @@ impl Register {
                 continue;
             }
 
-            let max_value_for_enum: u64 = {
-                let bit_count = e.range.bit_count();
-                if bit_count.get() > 64 {
-                    let _ = v.table_validation_error::<()>(format!("enum '{}' bit range '{}' is larger than 64 bits", e.name, e.range));
+            let max_value_for_enum: u64 = match e.range.max_value() {
+                Ok(value) => value,
+                Err(error) => {
+                    let _ = v.table_validation_error::<()>(format!("enum '{}' {}", e.name, error));
                     continue;
-                }
-
-                if bit_count.get() == 64 {
-                    u64::max_value()
-                } else {
-                    2u64.pow(bit_count.get()) - 1
                 }
             };
 

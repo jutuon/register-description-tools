@@ -1,3 +1,4 @@
+#![recursion_limit="128"]
 
 pub mod config;
 pub mod logic;

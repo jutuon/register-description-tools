@@ -1,9 +1,10 @@
 pub mod validation;
+pub mod codegen;
 
 use std::fs;
 
 use validation::{ValidationError, ParsedFile};
-use crate::config::Config;
+use crate::config::{ Config, Language };
 
 pub fn run(config: Config) {
     match config {
@@ -12,6 +13,9 @@ pub fn run(config: Config) {
         },
         Config::Edit { file } => {
             edit(file)
+        }
+        Config::Generate {input, output, language } => {
+            generate(input, output, language)
         }
         _ => unimplemented!()
     }
@@ -61,4 +65,15 @@ fn edit(file_path: String) {
     };
 
     crate::ui::run_ui(parsed_file, register_file_raw, file_path)
+}
+
+fn generate(input: String, output: String, language: Language) {
+    let parsed_file = match run_validation_and_print_errors(&input) {
+        Ok((parsed_file, _)) => parsed_file,
+        Err(_) => std::process::exit(-1),
+    };
+
+    match language {
+        Language::Rust => self::codegen::rust::parsed_file_to_rust(&parsed_file, &output)
+    }
 }

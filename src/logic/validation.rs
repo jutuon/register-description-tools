@@ -430,7 +430,7 @@ impl <'a, 'b> TableValidator<'a, 'b> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Name(String);
 
 impl Name {
