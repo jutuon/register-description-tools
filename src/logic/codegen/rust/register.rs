@@ -19,6 +19,9 @@ use crate::logic::{
             RegisterEnumValue,
             FunctionStatus,
         },
+        register_description::{
+            RegisterDescription,
+        },
     },
 };
 
@@ -30,8 +33,9 @@ pub fn register_group(registers: &Vec<Register>, group_type: &Ident, group_name:
     let mut unique_register_traits = HashMap::new();
 
     for r in registers {
-        let io_trait = r.io_trait_rust(group_type);
-        unique_register_traits.insert(io_trait.to_string(), io_trait);
+        for io_trait in r.io_traits_rust(group_type) {
+            unique_register_traits.insert(io_trait.to_string(), io_trait);
+        }
     }
 
     let register_traits: Vec<TokenStream> = unique_register_traits.into_iter().map(|(_, r_trait)| {
@@ -90,14 +94,14 @@ pub fn register_group(registers: &Vec<Register>, group_type: &Ident, group_name:
     }
 }
 
-pub fn registers_to_module(registers: &Vec<Register>, group_type: &Ident) -> TokenStream {
+pub fn registers_to_module(registers: &Vec<Register>, rd: &RegisterDescription, group_type: &Ident) -> TokenStream {
 
     let mut register_modules: Vec<TokenStream> = vec![];
     for r in registers {
         let module_name = ident(r.name.as_str().to_snake_case());
         let module = register_module(r,);
         let r_struct = register_struct(r, group_type);
-        let r_struct_impl = register_struct_impl(r, group_type);
+        let r_struct_impl = register_struct_impl(r, rd, group_type);
         let tokens = quote! {
             #r_struct
             pub mod #module_name {
@@ -129,14 +133,30 @@ impl Register {
         ident(self.name.as_str().to_snake_case())
     }
 
-    fn io_trait_rust(&self, group_type: &Ident) -> TokenStream {
+    fn io_traits_rust(&self, group_type: &Ident) -> Vec<TokenStream> {
         let size = ident(self.size_in_bits.rust_unsigned_integer());
 
-        match &self.location {
-            RegisterLocation::Index(_) => quote! { RegisterIndexIo<#group_type, #size> },
-            RegisterLocation::Absolute(_) => quote! { RegisterAbsIo<#group_type, #size> },
-            RegisterLocation::Relative(_) => quote! { RegisterRelIo<#group_type, #size> },
+        let mut r = vec![];
+
+        if let AccessMode::Read | AccessMode::ReadWrite = self.access_mode {
+            let read = match &self.read_location {
+                RegisterLocation::Index(_) => quote! { RegisterIndexIoR<#group_type, #size> },
+                RegisterLocation::Absolute(_) => quote! { RegisterAbsIoR<#group_type, #size> },
+                RegisterLocation::Relative(_) => quote! { RegisterRelIoR<#group_type, #size> },
+            };
+            r.push(read);
         }
+
+        if let AccessMode::Write | AccessMode::ReadWrite = self.access_mode {
+            let write = match &self.write_location {
+                RegisterLocation::Index(_) => quote! { RegisterIndexIoW<#group_type, #size> },
+                RegisterLocation::Absolute(_) => quote! { RegisterAbsIoW<#group_type, #size> },
+                RegisterLocation::Relative(_) => quote! { RegisterRelIoW<#group_type, #size> },
+            };
+            r.push(write);
+        }
+
+        r
     }
 
     fn contains_reserved_bit_fields(&self) -> bool {
@@ -152,44 +172,57 @@ impl Register {
 
 fn register_struct(r: &Register, group_type: &Ident) -> TokenStream {
     let name = r.register_rust_name();
-    let io_trait = r.io_trait_rust(group_type);
+    let io_traits = r.io_traits_rust(group_type);
+    let type_bound = quote! { #( #io_traits )+* };
     quote! {
-        pub struct #name<'a, T: #io_trait> {
+        pub struct #name<'a, T: #type_bound> {
             io: &'a mut T,
         }
     }
 }
 
-fn register_struct_impl(r: &Register, group_type: &Ident) -> TokenStream {
+fn location_trait(r: &Register, rd: &RegisterDescription, group_type: &Ident, location: RegisterLocation, const_postfix: &str, trait_postfix: &str) -> (TokenStream, Ident) {
     let name = r.register_rust_name();
-    let io_trait = r.io_trait_rust(group_type);
+    let io_traits = r.io_traits_rust(group_type);
+    let type_bounds = quote! { #( #io_traits )+* };
+    let index_const_type = ident(rd.index_size.rust_unsigned_integer());
+    let address_const_type = rd.address_size.rust_type();
 
-    let (location_trait_impl, location_const) = match &r.location {
+    let (trait_name, const_name, const_type, const_value) = match location {
         RegisterLocation::Index(value) => {
-            let value = lit_int(*value);
-            (quote! {
-                impl <'a, T: #io_trait> LocationIndex for super::#name<'a, T> {
-                    const INDEX: u8 = #value;
-                }
-            }, ident("INDEX"))
+            let const_value = lit_int(value);
+            let const_name = ident(format!("INDEX{}", const_postfix));
+            let trait_name = ident(format!("LocationIndex{}", trait_postfix));
+            (trait_name, const_name, index_const_type, const_value)
         }
         RegisterLocation::Absolute(value) => {
-            let value = lit_int(*value);
-            (quote! {
-                impl <'a, T: #io_trait> LocationAbs for super::#name<'a, T> {
-                    const ABS_ADDRESS: usize = #value;
-                }
-            }, ident("ABS_ADDRESS"))
+            let const_value = lit_int(value);
+            let const_name = ident(format!("ABS_ADDRESS{}", const_postfix));
+            let trait_name = ident(format!("LocationAbs{}", trait_postfix));
+            (trait_name, const_name, address_const_type, const_value)
         }
         RegisterLocation::Relative(value) => {
-            let value = lit_int(*value);
-            (quote! {
-                impl <'a, T: #io_trait> LocationRel for super::#name<'a, T> {
-                    const REL_ADDRESS: usize = #value;
-                }
-            }, ident("REL_ADDRESS"))
+            let const_value = lit_int(value);
+            let const_name = ident(format!("REL_ADDRESS{}", const_postfix));
+            let trait_name = ident(format!("LocationRel{}", trait_postfix));
+            (trait_name, const_name, address_const_type, const_value)
         }
     };
+
+    (quote! {
+        impl <'a, T: #type_bounds> #trait_name for super::#name<'a, T> {
+            const #const_name: #const_type = #const_value;
+        }
+    }, const_name)
+}
+
+fn register_struct_impl(r: &Register, rd: &RegisterDescription, group_type: &Ident) -> TokenStream {
+    let name = r.register_rust_name();
+    let io_traits = r.io_traits_rust(group_type);
+    let type_bounds = quote! { #( #io_traits )+* };
+
+    let (read_location_trait_impl, read_location_const) = location_trait(r, rd, group_type, r.read_location, "_R", "R");
+    let (write_location_trait_impl, write_location_const) = location_trait(r, rd, group_type, r.write_location, "_W", "W");
 
     let mut methods = vec![];
 
@@ -204,7 +237,7 @@ fn register_struct_impl(r: &Register, group_type: &Ident) -> TokenStream {
                 let r = self.read();
                 let mut w = W { raw_bits: r.raw_bits };
                 (f)(&r, &mut w);
-                self.io.write(Self::#location_const, w.raw_bits);
+                self.io.write(Self::#write_location_const, w.raw_bits);
             }
         });
     }
@@ -214,7 +247,7 @@ fn register_struct_impl(r: &Register, group_type: &Ident) -> TokenStream {
             #[doc = "Reads the contents of the register"]
             #[inline]
             pub fn read(&mut self) -> R {
-                R { raw_bits: self.io.read(Self::#location_const) }
+                R { raw_bits: self.io.read(Self::#read_location_const) }
             }
         });
     }
@@ -230,11 +263,20 @@ fn register_struct_impl(r: &Register, group_type: &Ident) -> TokenStream {
                 {
                     let mut w = W { raw_bits: 0 };
                     (f)(&mut w);
-                    self.io.write(Self::#location_const, w.raw_bits);
+                    self.io.write(Self::#write_location_const, w.raw_bits);
                 }
             });
         }
     }
+
+    let location_trait_impl = match r.access_mode {
+        AccessMode::Write => quote! { #write_location_trait_impl },
+        AccessMode::Read => quote! { #read_location_trait_impl },
+        AccessMode::ReadWrite => quote! {
+            #read_location_trait_impl
+            #write_location_trait_impl
+        },
+    };
 
     quote! {
         use super::super::register_trait::*;
@@ -242,11 +284,11 @@ fn register_struct_impl(r: &Register, group_type: &Ident) -> TokenStream {
 
         #location_trait_impl
 
-        impl <'a, T: #io_trait> InGroup for super::#name<'a, T> {
+        impl <'a, T: #type_bounds> InGroup for super::#name<'a, T> {
             type Group = #group_type;
         }
 
-        impl <'a, T: #io_trait> super::#name<'a, T> {
+        impl <'a, T: #type_bounds> super::#name<'a, T> {
             #( #methods )*
         }
     }

@@ -23,6 +23,8 @@ const DESCRIPTION_KEY: &str = "description";
 const DEFAULT_REGISTER_SIZE_KEY: &str = "default_register_size";
 const DEFAULT_REGISTER_ACCESS_KEY: &str = "default_register_access";
 const EXTENSION_KEY: &str = "extension";
+const INDEX_SIZE_KEY: &str = "index_size";
+const ADDRESS_SIZE_KEY: &str = "address_size";
 
 const POSSIBLE_KEYS: &[&str] = &[
     VERSION_KEY,
@@ -31,6 +33,8 @@ const POSSIBLE_KEYS: &[&str] = &[
     DEFAULT_REGISTER_SIZE_KEY,
     EXTENSION_KEY,
     DEFAULT_REGISTER_ACCESS_KEY,
+    INDEX_SIZE_KEY,
+    ADDRESS_SIZE_KEY,
 ];
 
 pub fn check_register_description(table: &TomlTable, data: &mut ParserContextAndErrors) -> Result<RegisterDescription, ()> {
@@ -47,6 +51,12 @@ pub fn check_register_description(table: &TomlTable, data: &mut ParserContextAnd
     let default_register_size_in_bits: Option<RegisterSize> = v.try_from_type(DEFAULT_REGISTER_SIZE_KEY).optional()?;
     let default_register_access: Option<AccessMode> = v.try_from_type(DEFAULT_REGISTER_ACCESS_KEY).optional()?;
 
+    let index_size: RegisterSize = v.try_from_type(INDEX_SIZE_KEY).optional()?.unwrap_or(RegisterSize::Size64);
+    let address_size: AddressSize = match v.try_from_type(ADDRESS_SIZE_KEY).optional()? {
+        Some(size) => AddressSize::RegisterSize(size),
+        None => AddressSize::Pointer,
+    };
+
     let rd = RegisterDescription {
         version,
         name,
@@ -54,9 +64,17 @@ pub fn check_register_description(table: &TomlTable, data: &mut ParserContextAnd
         extension,
         default_register_size_in_bits,
         default_register_access,
+        index_size,
+        address_size,
     };
 
     Ok(rd)
+}
+
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub enum AddressSize {
+    Pointer,
+    RegisterSize(RegisterSize),
 }
 
 
@@ -68,6 +86,8 @@ pub struct RegisterDescription {
     pub extension: Option<Extension>,
     pub default_register_size_in_bits: Option<RegisterSize>,
     pub default_register_access: Option<AccessMode>,
+    pub index_size: RegisterSize,
+    pub address_size: AddressSize,
 }
 
 #[derive(Debug, Copy, Clone)]

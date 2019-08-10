@@ -22,6 +22,9 @@ use crate::logic::{
         register::{
             RegisterSize,
         },
+        register_description::{
+            AddressSize,
+        }
     },
 };
 
@@ -48,7 +51,7 @@ pub fn parsed_file_to_rust(parsed_file: &ParsedFile, output: &str) {
 }
 
 fn convert_parsed_file_to_token_stream(parsed_file: &ParsedFile) -> TokenStream {
-    let trait_module = register_trait::register_trait_module();
+    let trait_module = register_trait::register_trait_module(&parsed_file.description);
 
 
     let groups: Vec<TokenStream> = match &parsed_file.registers {
@@ -58,7 +61,7 @@ fn convert_parsed_file_to_token_stream(parsed_file: &ParsedFile) -> TokenStream 
                 let module_name = ident(name.to_snake_case());
                 let group_str = name.to_pascal_case();
                 let group_type = ident(format!("{}Group", group_str));
-                let registers_modules = register::registers_to_module(&registers, &group_type);
+                let registers_modules = register::registers_to_module(&registers, &parsed_file.description, &group_type);
                 let register_group = register::register_group(&registers, &group_type, &group_str);
                 quote! {
                     pub mod #module_name {
@@ -71,7 +74,7 @@ fn convert_parsed_file_to_token_stream(parsed_file: &ParsedFile) -> TokenStream 
         }
         Some(Registers::OnlyRegisters(registers)) => {
             let group_type = ident("RegisterGroup");
-            let registers_modules = register::registers_to_module(&registers, &group_type);
+            let registers_modules = register::registers_to_module(&registers, &parsed_file.description, &group_type);
             let register_group = register::register_group(&registers, &group_type, "");
             vec![
                 quote! {
@@ -123,5 +126,16 @@ impl RegisterSize {
         };
 
         number_type
+    }
+}
+
+impl AddressSize {
+    pub fn rust_type(&self) -> Ident {
+        let type_str = match self {
+            AddressSize::Pointer => "usize",
+            AddressSize::RegisterSize(size) => size.rust_unsigned_integer(),
+        };
+
+        ident(type_str)
     }
 }

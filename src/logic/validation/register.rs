@@ -260,7 +260,8 @@ pub struct Register {
     pub name: Name,
     pub access_mode: AccessMode,
     pub size_in_bits: RegisterSize,
-    pub location: RegisterLocation,
+    pub read_location: RegisterLocation,
+    pub write_location: RegisterLocation,
     pub description: Option<String>,
     pub functions: Vec<RegisterFunction>,
     pub enums: Vec<RegisterEnum>,
@@ -463,6 +464,9 @@ const VALUE_KEY: &str = "value";
 const ENUMS_KEY: &str = "enum";
 const INDEX_KEY: &str = "index";
 const SIZE_IN_BITS_KEY: &str = "size";
+const WRITE_INDEX_KEY: &str = "index_w";
+const WRITE_ABSOLUTE_ADDRESS_KEY: &str = "absolute_address_w";
+const WRITE_RELATIVE_ADDRESS_KEY: &str = "relative_address_w";
 
 const POSSIBLE_KEYS_REGISTER: &[&str] = &[
     NAME_KEY,
@@ -474,6 +478,9 @@ const POSSIBLE_KEYS_REGISTER: &[&str] = &[
     ENUMS_KEY,
     SIZE_IN_BITS_KEY,
     INDEX_KEY,
+    WRITE_INDEX_KEY,
+    WRITE_ABSOLUTE_ADDRESS_KEY,
+    WRITE_RELATIVE_ADDRESS_KEY,
 ];
 
 const POSSIBLE_KEYS_FUNCTION: &[&str] = &[
@@ -514,17 +521,41 @@ pub fn validate_register_table(
 
     let description = v.string(DESCRIPTION_KEY).optional()?;
 
-    let location = {
+    let access_mode: Option<AccessMode> = v.try_from_type(ACCESS_KEY).optional()?.or(rd.default_register_access);
+    let access_mode = match access_mode {
+        Some(a) => a,
+        None => return v.table_validation_error(format!("register access mode is undefined")),
+    };
+
+    let (read_location, write_location) = {
         let index: Option<u64> = v.try_from_integer(INDEX_KEY).optional()?;
         let absolute_address: Option<u64> = v.try_from_integer(ABSOLUTE_ADDRESS_KEY).optional()?;
         let relative_address: Option<u64> = v.try_from_integer(RELATIVE_ADDRESS_KEY).optional()?;
 
-        match (index, absolute_address, relative_address) {
+        let location = match (index, absolute_address, relative_address) {
             (Some(v), None, None) => RegisterLocation::Index(v),
             (None, Some(v), None) => RegisterLocation::Absolute(v),
             (None, None, Some(v)) => RegisterLocation::Relative(v),
             (None, None, None) => return v.table_validation_error(format!("register location field '{}', '{}', or '{}' is required", ABSOLUTE_ADDRESS_KEY, RELATIVE_ADDRESS_KEY, INDEX_KEY)),
             _ => return v.table_validation_error(format!("register location field count error: only one location field is supported")),
+        };
+
+        let index_w: Option<u64> = v.try_from_integer(WRITE_INDEX_KEY).optional()?;
+        let absolute_address_w: Option<u64> = v.try_from_integer(WRITE_ABSOLUTE_ADDRESS_KEY).optional()?;
+        let relative_address_w: Option<u64> = v.try_from_integer(WRITE_RELATIVE_ADDRESS_KEY).optional()?;
+
+        let write_location = match (index_w, absolute_address_w, relative_address_w) {
+            (Some(v), None, None) => Some(RegisterLocation::Index(v)),
+            (None, Some(v), None) => Some(RegisterLocation::Absolute(v)),
+            (None, None, Some(v)) => Some(RegisterLocation::Relative(v)),
+            (None, None, None) => None,
+            _ => return v.table_validation_error(format!("register location field count error: only one write location field is supported")),
+        };
+
+        match (access_mode, write_location) {
+            (_, None) => (location, location),
+            (AccessMode::ReadWrite, Some(write_location)) => (location, write_location),
+            (_, Some(_)) => return v.table_validation_error(format!("register write location field error: specifying write location is only supported when register access mode is 'rw'")),
         }
     };
 
@@ -532,12 +563,6 @@ pub fn validate_register_table(
     let size_in_bits = match size_in_bits {
         Some(size) => size,
         None => return v.table_validation_error(format!("register size is undefined")),
-    };
-
-    let access_mode: Option<AccessMode> = v.try_from_type(ACCESS_KEY).optional()?.or(rd.default_register_access);
-    let access_mode = match access_mode {
-        Some(a) => a,
-        None => return v.table_validation_error(format!("register access mode is undefined")),
     };
 
     let functions = v.array_of_tables(FUNCTIONS_KEY).require()?
@@ -560,7 +585,8 @@ pub fn validate_register_table(
 
     let mut register = Register {
         name,
-        location,
+        read_location,
+        write_location,
         access_mode,
         size_in_bits,
         description,
