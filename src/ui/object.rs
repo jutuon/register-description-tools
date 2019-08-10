@@ -1,6 +1,7 @@
 
 use std::{
     fmt,
+    convert::TryFrom,
 };
 
 use crate::logic::validation::{
@@ -10,10 +11,15 @@ use crate::logic::validation::{
         AccessMode,
         RegisterSize,
         RegisterLocation,
+        BitRange,
     },
 };
 
 use super::field::*;
+
+fn bit_range_validation(value: String, key: &str) -> Result<String, String> {
+    BitRange::try_from(value.as_str().trim()).map(|_| value).map_err(|e| format!("field '{}': {}", key, e))
+}
 
 fn error_if_empty(text: String, key: &str) -> Result<String, String> {
     if text.trim().is_empty() {
@@ -163,7 +169,7 @@ impl UiEnum {
     pub fn new() -> Self {
         let id = "enum";
         UiEnum {
-            bit: StringField::new("bit", "", id, Some(error_if_empty)),
+            bit: StringField::new("bit", "", id, Some(bit_range_validation)),
             name: StringField::new("name", "", id, Some(error_if_empty)),
             description: StringField::new("description", "", id, None),
             values: vec![],
@@ -206,11 +212,13 @@ impl fmt::Display for UiFunction {
     }
 }
 
+
+
 impl UiFunction {
     pub fn new() -> Self {
         let id = "function";
         UiFunction {
-            bit: StringField::new("bit", "", id, Some(error_if_empty)),
+            bit: StringField::new("bit", "", id, Some(bit_range_validation)),
             reserved: BooleanField::new("reserved", false, id),
             name: StringField::new("name", "", id, None),
             description: StringField::new("description", "", id, None),
