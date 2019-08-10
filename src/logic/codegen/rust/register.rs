@@ -1,6 +1,6 @@
 use std::{
     iter,
-    collections::HashMap,
+    collections::HashSet,
 };
 
 use quote::quote;
@@ -30,17 +30,16 @@ use super::{ident, lit_int};
 
 pub fn register_group(registers: &Vec<Register>, group_type: &Ident, group_name: &str) -> TokenStream {
 
-    let mut unique_register_traits = HashMap::new();
+    let mut unique_register_traits: HashSet<String> = HashSet::new();
+    let mut register_traits: Vec<TokenStream> = vec![];
 
     for r in registers {
         for io_trait in r.io_traits_rust(group_type) {
-            unique_register_traits.insert(io_trait.to_string(), io_trait);
+            if unique_register_traits.insert(io_trait.to_string()) {
+                register_traits.push(io_trait);
+            }
         }
     }
-
-    let register_traits: Vec<TokenStream> = unique_register_traits.into_iter().map(|(_, r_trait)| {
-        r_trait
-    }).collect();
 
     let type_bounds = quote! { #( #register_traits )+* };
 
