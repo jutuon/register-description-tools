@@ -229,9 +229,9 @@ impl UiObject for UiFunction {
     fn fields(&mut self, _: &ParsedFile) -> Vec<&mut dyn TuiField> {
         vec![
             &mut self.bit,
-            &mut self.reserved,
             &mut self.name,
             &mut self.description,
+            &mut self.reserved,
         ]
     }
 }
