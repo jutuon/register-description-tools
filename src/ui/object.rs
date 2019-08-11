@@ -216,13 +216,21 @@ impl fmt::Display for UiFunction {
 
 impl UiFunction {
     pub fn new() -> Self {
+        Self::new_with_values("", false, "", "")
+    }
+
+    pub fn new_with_values(bit: &str, reserved: bool, name: &str, description: &str) -> Self {
         let id = "function";
         UiFunction {
-            bit: StringField::new("bit", "", id, Some(bit_range_validation)),
-            reserved: BooleanField::new("reserved", false, id),
-            name: StringField::new("name", "", id, None),
-            description: StringField::new("description", "", id, None),
+            bit: StringField::new("bit", bit, id, Some(bit_range_validation)),
+            reserved: BooleanField::new("reserved", reserved, id),
+            name: StringField::new("name", name, id, None),
+            description: StringField::new("description", description, id, None),
         }
+    }
+
+    pub fn new_reserved(bit: &str) -> Self {
+        Self::new_with_values(bit, true, "", "")
     }
 }
 

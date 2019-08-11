@@ -1,4 +1,5 @@
 
+use std::convert::TryFrom;
 
 use cursive::{
     Cursive,
@@ -21,9 +22,12 @@ use super::{
     object::{
         UiObject,
         ObjectHandler,
+        UiFunction,
     },
     validate::validate_and_save_ui_register,
 };
+
+use crate::logic::validation::register::BitRange;
 
 pub fn open_new_register_dialog(s: &mut Cursive) {
     let d = create_editor_dialog(|dialog, mut fields, select_views, buttons| {
@@ -74,6 +78,7 @@ pub fn open_new_register_dialog(s: &mut Cursive) {
 
         let buttons = buttons.child(add_function_button)
             .child(add_enum_button)
+            .child(Button::new("Fill reserved", |s| fill_empty_register_fields_as_reserved(s)))
             .child(DummyView)
             .child(Button::new("Save and next", |s| { let _ = save_register(s, true); }))
             .child(Button::new("Save", |s| { let _ = save_register(s, false); }))
@@ -128,6 +133,53 @@ fn save_register(mut s: &mut Cursive, next_register: bool) -> Result<(), ()> {
     }
 
     Ok(())
+}
+
+fn fill_empty_register_fields_as_reserved(mut s: &mut Cursive) {
+    let _ = modify_ui_and_data(&mut s, |mut s, editor_data| {
+        let bit_fields = &mut editor_data.objects.register.functions;
+        let register_size = editor_data.objects.register.size.value;
+        let mut new_fields: Vec<UiFunction> = vec![];
+
+        let mut current_msb = register_size as u16 - 1;
+        let mut end_reached = false;
+        for ui_field in bit_fields.iter() {
+            if end_reached {
+                new_fields.push(ui_field.clone());
+                continue;
+            }
+
+            let range = super::field::error_message(&mut s, BitRange::try_from(ui_field.bit.value.as_str().trim()))?;
+
+            if current_msb > range.msb {
+                let new_range = BitRange::new(current_msb, range.msb + 1);
+                let new_ui_field = UiFunction::new_reserved(&new_range.to_string());
+                new_fields.push(new_ui_field);
+            } else if current_msb < range.msb {
+                end_reached = true;
+            }
+
+            new_fields.push(ui_field.clone());
+
+            if range.lsb == 0 {
+                end_reached = true;
+            } else {
+                current_msb = range.lsb - 1;
+            }
+        }
+
+        if !end_reached {
+            let new_range = BitRange::new(current_msb, 0);
+            let new_ui_field = UiFunction::new_reserved(&new_range.to_string());
+            new_fields.push(new_ui_field);
+        }
+
+        *bit_fields = new_fields;
+
+        update_select_view(&mut s, "bit field", &bit_fields);
+
+        Ok(())
+    });
 }
 
 fn create_editor_dialog<T: FnMut(Dialog, ListView, LinearLayout, LinearLayout) -> (Dialog, ListView, LinearLayout, LinearLayout)>(mut set_widgets: T) -> Dialog {
