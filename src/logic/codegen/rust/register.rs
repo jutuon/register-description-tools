@@ -290,6 +290,10 @@ fn register_struct_impl(r: &Register, rd: &RegisterDescription, group_type: &Ide
         }
 
         impl <'a, T: #type_bounds> super::#name<'a, T> {
+            pub fn new(io: &'a mut T) -> Self {
+                Self { io }
+            }
+
             #( #methods )*
         }
     }
