@@ -173,7 +173,9 @@ fn register_struct(r: &Register, group_type: &Ident) -> TokenStream {
     let name = r.register_rust_name();
     let io_traits = r.io_traits_rust(group_type);
     let type_bound = quote! { #( #io_traits )+* };
+    let doc = r.description_rust();
     quote! {
+        #doc
         pub struct #name<'a, T: #type_bound> {
             io: &'a mut T,
         }
