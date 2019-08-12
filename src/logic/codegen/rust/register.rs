@@ -677,7 +677,7 @@ impl RegisterBitFieldAndEnum {
                         }
                     }
 
-                    #[doc = "Value fo the field as raw bits"]
+                    #[doc = "Value of the field as raw bits"]
                     #[inline]
                     pub fn bits(&self) -> #register_size {
                         *self as #register_size
@@ -716,7 +716,6 @@ impl RegisterBitFieldAndEnum {
                         #name::_Reserved(value == Self::_MASK)
                     }
 
-                    #[doc = "Value of the field as raw bits"]
                     #[inline]
                     pub fn bit(&self) -> bool {
                         match *self {
