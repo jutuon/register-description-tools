@@ -683,6 +683,15 @@ impl RegisterBitFieldAndEnum {
                         *self as #register_size
                     }
                 });
+
+                if self.is_boolean() {
+                    r.push(quote! {
+                        #[inline]
+                        pub fn bit(&self) -> bool {
+                            self.bits() == 1
+                        }
+                    });
+                }
             }
             EnumType::ReservedBoolean => {
                 r.push(quote! {
