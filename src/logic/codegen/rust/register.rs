@@ -356,7 +356,7 @@ fn read_register_code(r: &Register, bit_fields: &Vec<RegisterBitFieldAndEnum>) -
         });
     }
 
-    let register = r.name.as_str().to_pascal_case();
+    let register = r.name.as_str().to_constant_case();
 
     quote! {
         #[doc = "Value to write to the register"]
