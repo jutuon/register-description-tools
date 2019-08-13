@@ -631,10 +631,10 @@ impl RegisterBitFieldAndEnum {
 
     fn conversion_methods(&self, name: &Ident, register_size: &Ident, enum_type: EnumType, only_to_register_value: bool) -> Vec<TokenStream> {
         let remove_additional_bits = quote! {
-            let value = value & !Self::_MASK;
+            let value = value & Self::_MASK;
         };
 
-        let shift_bits = quote! {
+        let shift_bits_to_index_zero = quote! {
             let value = value >> Self::_OFFSET;
         };
 
@@ -669,7 +669,7 @@ impl RegisterBitFieldAndEnum {
                     #[inline]
                     pub fn from_register_value(value: #register_size) -> Self {
                         #remove_additional_bits
-                        #shift_bits
+                        #shift_bits_to_index_zero
 
                         match value {
                             #( #values => #names::#variants,)*
@@ -744,7 +744,7 @@ impl RegisterBitFieldAndEnum {
                     #[inline]
                     pub fn from_register_value(value: #register_size) -> Self {
                         #remove_additional_bits
-                        #shift_bits
+                        #shift_bits_to_index_zero
 
                         #name::_Reserved(value)
                     }
@@ -842,8 +842,10 @@ impl RegisterBitFieldAndEnum {
                 #[inline]
                 pub fn bit(self, value: bool) -> &'a mut W {
                     if value {
+                        // Set register bit.
                         self.w.raw_bits |= Self::_MASK;
                     } else {
+                        // Clear register bit.
                         self.w.raw_bits &= !Self::_MASK;
                     }
                     self.w
@@ -854,9 +856,15 @@ impl RegisterBitFieldAndEnum {
                 #[doc = "Writes raw bits to the field"]
                 #[inline]
                 pub fn bits(self, value: #register_size) -> &'a mut W {
-                    self.w.raw_bits &= !Self::_MASK;
+                    // Convert bit field value to register value.
+                    let value = value << Self::_OFFSET;
+                    // Clear other bits which are not part of this bit field.
                     let value = value & Self::_MASK;
-                    self.w.raw_bits |= value << Self::_OFFSET;
+
+                    // Clear old bit field value from the register.
+                    self.w.raw_bits &= !Self::_MASK;
+                    // Update new bit field value to the register.
+                    self.w.raw_bits |= value;
                     self.w
                 }
             })
@@ -867,7 +875,9 @@ impl RegisterBitFieldAndEnum {
                 #[doc = "Writes `variant` to the field"]
                 #[inline]
                 pub fn variant(self, variant: #w_enum_name) -> &'a mut W {
+                    // Clear old bit field value from the register.
                     self.w.raw_bits &= !Self::_MASK;
+                    // Update new bit field value to the register.
                     self.w.raw_bits |= variant.to_register_value();
                     self.w
                 }
@@ -895,8 +905,17 @@ impl RegisterBitFieldAndEnum {
                         #doc
                         #[inline]
                         pub fn #name(self) -> &'a mut W {
+                            // Convert bit field value to register value.
+                            let value = #variant_value << Self::_OFFSET;
+
+                            // There is no need to clear additional bits from the value
+                            // because validator checks from the enum definition that
+                            // the value doesn't overflow the bit field.
+
+                            // Clear old bit field value from the register.
                             self.w.raw_bits &= !Self::_MASK;
-                            self.w.raw_bits |= #variant_value << Self::_OFFSET;
+                            // Update new bit field value to the register.
+                            self.w.raw_bits |= value;
                             self.w
                         }
                     });
