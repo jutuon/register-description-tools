@@ -58,13 +58,13 @@ pub fn register_group(registers: &Vec<Register>, group_type: &Ident, group_name:
         .collect();
 
     quote! {
-        pub struct #register_getters_type<'a, T: #type_bounds > {
-            io: &'a mut T,
+        pub struct #register_getters_type<T: #type_bounds > {
+            io: T,
         }
 
-        impl <'a, T: #type_bounds > #register_getters_type<'a, T> {
+        impl <T: #type_bounds > #register_getters_type<T> {
             #[inline]
-            pub fn new(io: &'a mut T) -> Self {
+            pub fn new(io: T) -> Self {
                 Self {
                     io
                 }
